@@ -6,7 +6,7 @@
 import express from "express";
 import path from "path";
 import { fileURLToPath } from "url";
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI } from "@google/genai";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
 
@@ -93,38 +93,38 @@ app.post("/api/extract", async (req, res) => {
         config: {
           responseMimeType: "application/json",
           responseSchema: {
-            type: Type.OBJECT,
+            type: "OBJECT",
             properties: {
-              passNumber: { type: Type.STRING, description: "Official DC Pass Number. e.g. STQL14010368060001000600" },
-              holderName: { type: Type.STRING, description: "Full name of the concession holder (e.g. Gujarat Minerals) or candidate." },
-              vehicleNumber: { type: Type.STRING, description: "Associated automotive or carrier vehicle identification plate series, e.g. GJ04AT7674." },
-              route: { type: Type.STRING, description: "Defined routes / corridors, e.g. NH 48." },
-              department: { type: Type.STRING, description: "Administrative department, default: COMMISSIONER OF GEOLOGY AND MINING, INDUSTRIES AND MINES DEPARTMENT" },
-              issueDate: { type: Type.STRING, description: "Pass issue activation date formatted as YYYY-MM-DD." },
-              expiryDate: { type: Type.STRING, description: "Pass expiration date formatted as YYYY-MM-DD." },
-              notes: { type: Type.STRING, description: "Notes or special clauses." },
-              royaltyIssuedOn: { type: Type.STRING, description: "Full stamp with time of royalty issue date. e.g. 01/04/2026 06:58:21 PM" },
-              carrierType: { type: Type.STRING, description: "Vehicle type e.g. Goods Carrier(HGV)" },
-              mineralName: { type: Type.STRING, description: "Mineral Name (Grade), e.g. Quartz (16-30 Mesh)" },
-              netWeight: { type: Type.STRING, description: "Net weight in MT, e.g. 24.20" },
-              netWeightWords: { type: Type.STRING, description: "Net weight in words, e.g. Twenty Four point Two Zero Zero" },
-              concessionHolder: { type: Type.STRING, description: "Concession Holder Name, e.g. Gujarat Minerals" },
-              sourcePlace: { type: Type.STRING, description: "Source of Place address" },
-              purchaserName: { type: Type.STRING, description: "Name of Purchaser" },
-              destinationAddress: { type: Type.STRING, description: "Destination / Address" },
-              distance: { type: Type.STRING, description: "Distance, e.g. 345 Km" },
-              journeyStart: { type: Type.STRING, description: "Journey Start Date timestamp, e.g. 01/04/2026 06:55:49 PM" },
-              journeyEnd: { type: Type.STRING, description: "Journey End Date timestamp, e.g. 02/04/2026 08:28:49 AM" },
-              routeName: { type: Type.STRING, description: "Route name, e.g. NH 48" },
-              duration: { type: Type.STRING, description: "Duration, e.g. 0 Day(s) 13 Hour(s) 33 Min" },
-              checkpost: { type: Type.STRING, description: "Checkpost details" },
-              driverName: { type: Type.STRING, description: "Driver Name, e.g. TAHIR BHAI" },
-              driverLicense: { type: Type.STRING, description: "Driver's License No, e.g. GJ1720070001281" },
-              driverMobile: { type: Type.STRING, description: "Driver Mobile No, e.g. 9998757522" },
-              panGst: { type: Type.STRING, description: "PAN Number / GSTIN, e.g. AAIFG0837H / 24AAIFG0837H1ZL" },
-              gpsDetails: { type: Type.STRING, description: "GPS Tracking Device Details, e.g. wastoo / WastooWHEELSEYE / Prithivi-140+" },
-              transporterName: { type: Type.STRING, description: "Transporter Name, e.g. SELF" },
-              buyerMobile: { type: Type.STRING, description: "Buyer Mobile Number, e.g. 9999999999" }
+              passNumber: { type: "STRING", description: "Official DC Pass Number. e.g. STQL14010368060001000600" },
+              holderName: { type: "STRING", description: "Full name of the concession holder (e.g. Gujarat Minerals) or candidate." },
+              vehicleNumber: { type: "STRING", description: "Associated automotive or carrier vehicle identification plate series, e.g. GJ04AT7674." },
+              route: { type: "STRING", description: "Defined routes / corridors, e.g. NH 48." },
+              department: { type: "STRING", description: "Administrative department, default: COMMISSIONER OF GEOLOGY AND MINING, INDUSTRIES AND MINES DEPARTMENT" },
+              issueDate: { type: "STRING", description: "Pass issue activation date formatted as YYYY-MM-DD." },
+              expiryDate: { type: "STRING", description: "Pass expiration date formatted as YYYY-MM-DD." },
+              notes: { type: "STRING", description: "Notes or special clauses." },
+              royaltyIssuedOn: { type: "STRING", description: "Full stamp with time of royalty issue date. e.g. 01/04/2026 06:58:21 PM" },
+              carrierType: { type: "STRING", description: "Vehicle type e.g. Goods Carrier(HGV)" },
+              mineralName: { type: "STRING", description: "Mineral Name (Grade), e.g. Quartz (16-30 Mesh)" },
+              netWeight: { type: "STRING", description: "Net weight in MT, e.g. 24.20" },
+              netWeightWords: { type: "STRING", description: "Net weight in words, e.g. Twenty Four point Two Zero Zero" },
+              concessionHolder: { type: "STRING", description: "Concession Holder Name, e.g. Gujarat Minerals" },
+              sourcePlace: { type: "STRING", description: "Source of Place address" },
+              purchaserName: { type: "STRING", description: "Name of Purchaser" },
+              destinationAddress: { type: "STRING", description: "Destination / Address" },
+              distance: { type: "STRING", description: "Distance, e.g. 345 Km" },
+              journeyStart: { type: "STRING", description: "Journey Start Date timestamp, e.g. 01/04/2026 06:55:49 PM" },
+              journeyEnd: { type: "STRING", description: "Journey End Date timestamp, e.g. 02/04/2026 08:28:49 AM" },
+              routeName: { type: "STRING", description: "Route name, e.g. NH 48" },
+              duration: { type: "STRING", description: "Duration, e.g. 0 Day(s) 13 Hour(s) 33 Min" },
+              checkpost: { type: "STRING", description: "Checkpost details" },
+              driverName: { type: "STRING", description: "Driver Name, e.g. TAHIR BHAI" },
+              driverLicense: { type: "STRING", description: "Driver's License No, e.g. GJ1720070001281" },
+              driverMobile: { type: "STRING", description: "Driver Mobile No, e.g. 9998757522" },
+              panGst: { type: "STRING", description: "PAN Number / GSTIN, e.g. AAIFG0837H / 24AAIFG0837H1ZL" },
+              gpsDetails: { type: "STRING", description: "GPS Tracking Device Details, e.g. wastoo / WastooWHEELSEYE / Prithivi-140+" },
+              transporterName: { type: "STRING", description: "Transporter Name, e.g. SELF" },
+              buyerMobile: { type: "STRING", description: "Buyer Mobile Number, e.g. 9999999999" }
             },
             required: ["passNumber", "holderName"],
           },
