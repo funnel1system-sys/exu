@@ -12,8 +12,15 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+let resolvedFilename = "";
+let resolvedDirname = "";
+try {
+  resolvedFilename = __filename;
+  resolvedDirname = __dirname;
+} catch (e) {
+  resolvedFilename = fileURLToPath(import.meta.url);
+  resolvedDirname = path.dirname(resolvedFilename);
+}
 
 const app = express();
 const PORT = 3000;
