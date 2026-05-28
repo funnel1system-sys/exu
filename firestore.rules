@@ -1,0 +1,118 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Global Safety Net (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+    
+    // Global Helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+    
+    function isSystemAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'funnel1system@gmail.com' ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+      );
+    }
+    
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\\\-]+$');
+    }
+    
+    function incoming() {
+      return request.resource.data;
+    }
+    
+    function existing() {
+      return resource.data;
+    }
+    
+    // Validation Schemas
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'role']) 
+        && data.keys().size() <= 6
+        && data.uid is string && data.uid.size() <= 128
+        && data.email is string && data.email.size() <= 256
+        && data.role in ['user', 'admin']
+        && (!('department' in data) || (data.department is string && data.department.size() <= 128))
+        && (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 128));
+    }
+    
+    function isValidPass(data) {
+      return data.keys().hasAll(['id', 'passNumber', 'holderName', 'status', 'uploadedBy', 'createdAt'])
+        && data.keys().size() <= 16
+        && isValidId(data.id)
+        && data.passNumber is string && data.passNumber.size() <= 64
+        && data.holderName is string && data.holderName.size() <= 128
+        && data.status in ['Pending', 'Approved', 'Rejected']
+        && data.uploadedBy is string && data.uploadedBy.size() <= 128
+        && (!('vehicleNumber' in data) || (data.vehicleNumber is string && data.vehicleNumber.size() <= 32))
+        && (!('route' in data) || (data.route is string && data.route.size() <= 256))
+        && (!('department' in data) || (data.department is string && data.department.size() <= 128))
+        && (!('pdfUrl' in data) || (data.pdfUrl is string && data.pdfUrl.size() <= 2048))
+        && (!('notes' in data) || (data.notes is string && data.notes.size() <= 1024))
+        && (!('qrCode' in data) || (data.qrCode is string && data.qrCode.size() <= 1024))
+        && (!('verifiedCount' in data) || (data.verifiedCount is int))
+        && (!('uploaderEmail' in data) || (data.uploaderEmail is string && data.uploaderEmail.size() <= 128));
+    }
+    
+    function isValidLog(data) {
+      return data.keys().hasAll(['id', 'action', 'timestamp'])
+        && data.keys().size() <= 7
+        && data.id is string && data.id.size() <= 128
+        && data.action is string && data.action.size() <= 64
+        && (!('passId' in data) || (data.passId is string && data.passId.size() <= 128))
+        && (!('actorUid' in data) || (data.actorUid is string && data.actorUid.size() <= 128))
+        && (!('actorEmail' in data) || (data.actorEmail is string && data.actorEmail.size() <= 128))
+        && (!('details' in data) || (data.details is string && data.details.size() <= 1024));
+    }
+
+    // Collection Rules
+    match /users/{userId} {
+      allow read: if isSignedIn() && (isOwner(userId) || isSystemAdmin());
+      allow create: if isSignedIn() && isOwner(userId) && isValidUser(incoming()) && incoming().role == 'user';
+      allow update: if isSignedIn() && (isSystemAdmin() || (isOwner(userId) && isValidUser(incoming()) && incoming().role == existing().role));
+      allow delete: if isSystemAdmin();
+    }
+    
+    match /passes/{passId} {
+      // 1. Any user can review direct pass validation for verification (public get)
+      allow get: if true; 
+      
+      // 2. Standard user can list only their uploads. Admin can list all.
+      allow list: if isSignedIn() && (isSystemAdmin() || (existing().uploadedBy == request.auth.uid));
+      
+      // 3. Authenticated check for pass uploads
+      allow create: if isSignedIn() && isValidPass(incoming()) && incoming().uploadedBy == request.auth.uid && incoming().status == 'Pending';
+      
+      // 4. Update gates: Admin can modify everything. Users can edit only Pending passes.
+      allow update: if isSignedIn() && (
+        isSystemAdmin() || (
+          existing().uploadedBy == request.auth.uid && 
+          existing().status == 'Pending' && 
+          incoming().uploadedBy == request.auth.uid && 
+          incoming().status == 'Pending' && 
+          isValidPass(incoming())
+        )
+      );
+      
+      // 5. Admin-only deletes
+      allow delete: if isSystemAdmin();
+    }
+    
+    match /logs/{logId} {
+      allow read: if isSystemAdmin();
+      allow create: if isSignedIn() && isValidLog(incoming());
+      allow update, delete: if false;
+    }
+  }
+}

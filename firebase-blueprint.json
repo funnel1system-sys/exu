@@ -1,0 +1,72 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "User account information, including role and department.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Unique user ID from Firebase Auth." },
+        "email": { "type": "string", "description": "User email address." },
+        "displayName": { "type": "string", "description": "User full name." },
+        "role": { "type": "string", "enum": ["user", "admin"], "description": "Access control role." },
+        "department": { "type": "string", "description": "Government or private department name." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Account registration timestamp." }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "DCPass": {
+      "title": "Digital DC Pass",
+      "description": "DC Pass records uploaded by users or approved by admins.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique Pass ID (number)." },
+        "passNumber": { "type": "string", "description": "Official pass sequence number." },
+        "holderName": { "type": "string", "description": "Name of the pass holder." },
+        "vehicleNumber": { "type": "string", "description": "Associated transport vehicle registration number." },
+        "route": { "type": "string", "description": "Approved transport route or area." },
+        "department": { "type": "string", "description": "Issuing or target department." },
+        "issueDate": { "type": "string", "format": "date", "description": "Pass activation date." },
+        "expiryDate": { "type": "string", "format": "date", "description": "Pass termination date." },
+        "status": { "type": "string", "enum": ["Pending", "Approved", "Rejected"], "description": "Workflow verification state." },
+        "pdfUrl": { "type": "string", "description": "Firebase Storage or local base64/blob link to original PDF." },
+        "uploadedBy": { "type": "string", "description": "UID of the user who uploaded the pass." },
+        "uploaderEmail": { "type": "string", "description": "Email of the uploader user." },
+        "notes": { "type": "string", "description": "Admin review comments or additional details." },
+        "qrCode": { "type": "string", "description": "Data payload built into the validation QR code (usually verification URL)." },
+        "verifiedCount": { "type": "integer", "description": "Total online verification scans registered." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Upload timestamp." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last modified timestamp." }
+      },
+      "required": ["id", "passNumber", "holderName", "status", "uploadedBy", "createdAt"]
+    },
+    "AuditLog": {
+      "title": "System Audit Log",
+      "description": "Logging trail for core operations (approval, updates, deletes).",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Log entry identifier." },
+        "passId": { "type": "string", "description": "Associated DC Pass ID." },
+        "action": { "type": "string", "description": "Executed action (e.g., 'APPROVE', 'REJECT', 'CREATE', 'EDIT', 'DELETE')." },
+        "actorUid": { "type": "string", "description": "UID of the admin or user executing the change." },
+        "actorEmail": { "type": "string", "description": "Email of the actor." },
+        "details": { "type": "string", "description": "Detailed explanation of changes." },
+        "timestamp": { "type": "string", "format": "date-time", "description": "Action timestamp." }
+      },
+      "required": ["id", "action", "timestamp"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": "User",
+      "description": "Stores profile settings and role configuration indexed by user UID."
+    },
+    "passes/{passId}": {
+      "schema": "DCPass",
+      "description": "Stores original and parsed digital DC pass records."
+    },
+    "logs/{logId}": {
+      "schema": "AuditLog",
+      "description": "Stores transaction system audit logs for administrative oversight."
+    }
+  }
+}
