@@ -49,20 +49,47 @@ service cloud.firestore {
     
     function isValidPass(data) {
       return data.keys().hasAll(['id', 'passNumber', 'holderName', 'status', 'uploadedBy', 'createdAt'])
-        && data.keys().size() <= 16
+        && data.keys().size() <= 45
         && isValidId(data.id)
         && data.passNumber is string && data.passNumber.size() <= 64
         && data.holderName is string && data.holderName.size() <= 128
         && data.status in ['Pending', 'Approved', 'Rejected']
         && data.uploadedBy is string && data.uploadedBy.size() <= 128
-        && (!('vehicleNumber' in data) || (data.vehicleNumber is string && data.vehicleNumber.size() <= 32))
+        && (!('vehicleNumber' in data) || (data.vehicleNumber is string && data.vehicleNumber.size() <= 64))
         && (!('route' in data) || (data.route is string && data.route.size() <= 256))
-        && (!('department' in data) || (data.department is string && data.department.size() <= 128))
+        && (!('department' in data) || (data.department is string && data.department.size() <= 256))
         && (!('pdfUrl' in data) || (data.pdfUrl is string && data.pdfUrl.size() <= 2048))
+        && (!('pdfBase64' in data) || (data.pdfBase64 is string))
+        && (!('pdfFileName' in data) || (data.pdfFileName is string && data.pdfFileName.size() <= 256))
+        && (!('issueDate' in data) || (data.issueDate is string && data.issueDate.size() <= 32))
+        && (!('expiryDate' in data) || (data.expiryDate is string && data.expiryDate.size() <= 32))
+        && (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 64))
         && (!('notes' in data) || (data.notes is string && data.notes.size() <= 1024))
         && (!('qrCode' in data) || (data.qrCode is string && data.qrCode.size() <= 1024))
         && (!('verifiedCount' in data) || (data.verifiedCount is int))
-        && (!('uploaderEmail' in data) || (data.uploaderEmail is string && data.uploaderEmail.size() <= 128));
+        && (!('uploaderEmail' in data) || (data.uploaderEmail is string && data.uploaderEmail.size() <= 128))
+        && (!('royaltyIssuedOn' in data) || (data.royaltyIssuedOn is string && data.royaltyIssuedOn.size() <= 128))
+        && (!('carrierType' in data) || (data.carrierType is string && data.carrierType.size() <= 128))
+        && (!('mineralName' in data) || (data.mineralName is string && data.mineralName.size() <= 128))
+        && (!('netWeight' in data) || (data.netWeight is string && data.netWeight.size() <= 64))
+        && (!('netWeightWords' in data) || (data.netWeightWords is string && data.netWeightWords.size() <= 256))
+        && (!('concessionHolder' in data) || (data.concessionHolder is string && data.concessionHolder.size() <= 256))
+        && (!('sourcePlace' in data) || (data.sourcePlace is string && data.sourcePlace.size() <= 1024))
+        && (!('purchaserName' in data) || (data.purchaserName is string && data.purchaserName.size() <= 256))
+        && (!('destinationAddress' in data) || (data.destinationAddress is string && data.destinationAddress.size() <= 1024))
+        && (!('distance' in data) || (data.distance is string && data.distance.size() <= 64))
+        && (!('journeyStart' in data) || (data.journeyStart is string && data.journeyStart.size() <= 128))
+        && (!('journeyEnd' in data) || (data.journeyEnd is string && data.journeyEnd.size() <= 128))
+        && (!('routeName' in data) || (data.routeName is string && data.routeName.size() <= 256))
+        && (!('duration' in data) || (data.duration is string && data.duration.size() <= 128))
+        && (!('checkpost' in data) || (data.checkpost is string && data.checkpost.size() <= 256))
+        && (!('driverName' in data) || (data.driverName is string && data.driverName.size() <= 128))
+        && (!('driverLicense' in data) || (data.driverLicense is string && data.driverLicense.size() <= 64))
+        && (!('driverMobile' in data) || (data.driverMobile is string && data.driverMobile.size() <= 32))
+        && (!('panGst' in data) || (data.panGst is string && data.panGst.size() <= 64))
+        && (!('gpsDetails' in data) || (data.gpsDetails is string && data.gpsDetails.size() <= 256))
+        && (!('transporterName' in data) || (data.transporterName is string && data.transporterName.size() <= 256))
+        && (!('buyerMobile' in data) || (data.buyerMobile is string && data.buyerMobile.size() <= 32));
     }
     
     function isValidLog(data) {

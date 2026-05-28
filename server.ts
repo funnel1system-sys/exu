@@ -14,12 +14,16 @@ dotenv.config();
 
 let resolvedFilename = "";
 let resolvedDirname = "";
-try {
+
+if (typeof __filename !== "undefined") {
   resolvedFilename = __filename;
   resolvedDirname = __dirname;
-} catch (e) {
+} else if (import.meta && import.meta.url) {
   resolvedFilename = fileURLToPath(import.meta.url);
   resolvedDirname = path.dirname(resolvedFilename);
+} else {
+  resolvedDirname = process.cwd();
+  resolvedFilename = path.join(resolvedDirname, "server.ts");
 }
 
 const app = express();
@@ -196,7 +200,11 @@ app.post("/api/extract", async (req, res) => {
 // Vite Server Integrations
 // -------------------------------------------------------------
 async function bootstrap() {
-  if (process.env.NODE_ENV !== "production") {
+  const isProd = process.env.NODE_ENV === "production" || 
+                 resolvedFilename.endsWith(".cjs") || 
+                 resolvedFilename.includes("dist");
+
+  if (!isProd) {
     console.log("Mounting Vite Middleware (Development Mode)");
     const vite = await createViteServer({
       server: { middlewareMode: true },
