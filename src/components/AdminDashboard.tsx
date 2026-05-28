@@ -122,7 +122,20 @@ export default function AdminDashboard() {
           })
         });
 
-        const outcome = await res.json();
+        const contentType = res.headers.get("content-type");
+        let outcome;
+        if (contentType && contentType.includes("application/json")) {
+          outcome = await res.json();
+        } else {
+          const rawText = await res.text();
+          console.error("Non-JSON Server Response Received:", rawText);
+          throw new Error(
+            `Unable to parse server compliance response. Status: ${res.status}. Server message: ${
+              rawText.length > 100 ? rawText.slice(0, 100) + "..." : rawText || "Empty Response"
+            }`
+          );
+        }
+
         if (!res.ok || !outcome.success) {
           throw new Error(outcome.error || "Compliance scanning extraction failure.");
         }
