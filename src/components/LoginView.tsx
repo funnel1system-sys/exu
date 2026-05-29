@@ -1,33 +1,35 @@
 import { useState, FormEvent } from 'react';
 import { authService, isMock } from '../supabase';
-import { KeyRound, Mail, AlertCircle, Sparkles, Building2, Eye, EyeOff, CheckCircle } from 'lucide-react';
+import { KeyRound, User, AlertCircle, Sparkles, Building2, Eye, EyeOff, CheckCircle } from 'lucide-react';
 
 interface LoginViewProps {
   onSuccess: (user: any) => void;
 }
 
 export default function LoginView({ onSuccess }: LoginViewProps) {
-  const [email, setEmail] = useState('admin@faruk.com');
+  const [username, setUsername] = useState('admin');
   const [password, setPassword] = useState('faruq12345');
-  const [isRegistering, setIsRegistering] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
   const handleQuickLogin = async () => {
-    setEmail('admin@faruk.com');
+    setUsername('admin');
     setPassword('faruq12345');
-    setIsRegistering(false);
     setLoading(true);
     setErrorMsg('');
     setSuccessMsg('');
     try {
-      const response = await authService.signIn('admin@faruk.com', 'faruq12345');
+      const response = await authService.signIn('admin', 'faruq12345');
       if (response.success) {
         onSuccess(response.user);
       } else {
-        setErrorMsg(response.error || 'Autofill and login query failed.');
+        if (!isMock) {
+          setErrorMsg("Account 'admin' (mapped to admin@faruk.com) does not exist in your live Supabase database yet. Create it in your Supabase Auth Panel first or switch to Simulated Local Mode below to test instantly!");
+        } else {
+          setErrorMsg(response.error || 'Autofill and login query failed.');
+        }
       }
     } catch (err: any) {
       console.error(err);
@@ -44,26 +46,15 @@ export default function LoginView({ onSuccess }: LoginViewProps) {
     setSuccessMsg('');
 
     try {
-      if (isRegistering) {
-        // Register standard administrator account
-        const response = await authService.signUp(email, password);
-        if (response.success) {
-          if (response.user && !isMock) {
-            setSuccessMsg(response.message || 'Verification email sent! If auto-confirm is enabled in your database, you can switch to the Sign In tab and log in immediately.');
-          } else {
-            // Simulated / Mock success or auto-login
-            onSuccess(response.user);
-          }
-        } else {
-          setErrorMsg(response.error || 'Registration failed. Please check your credentials.');
-        }
+      // Log in standard administrator using username/ID or email
+      const response = await authService.signIn(username, password);
+      if (response.success) {
+        onSuccess(response.user);
       } else {
-        // Log in standard administrator
-        const response = await authService.signIn(email, password);
-        if (response.success) {
-          onSuccess(response.user);
+        if (!isMock && (response.error || '').toLowerCase().includes('invalid login')) {
+          setErrorMsg("Invalid login credentials. Note: If using live Supabase, make sure a user with this username formatted as '" + (username.includes('@') ? username : `${username}@faruk.com`) + "' exists in your database.");
         } else {
-          setErrorMsg(response.error || 'Authentication rejected. Email or password incorrect.');
+          setErrorMsg(response.error || 'Authentication rejected. Email/Username or password incorrect.');
         }
       }
     } catch (err: any) {
@@ -91,53 +82,45 @@ export default function LoginView({ onSuccess }: LoginViewProps) {
           <p className="text-gray-400 text-xs mt-1">Commissioner of Geology & Mining Department Admin Platform</p>
         </div>
 
-        {/* DATABASE CONNECTION STATUS INDICATOR */}
-        <div className="mb-5 flex justify-center">
-          {isMock ? (
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-500/10 border border-amber-500/30 text-amber-300 rounded-full text-xs font-mono">
-              <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
-              Simulated Local Mode
+        {/* DATABASE CONNECTION STATUS INDICATOR & TOGGLE */}
+        <div className="mb-5 flex flex-col items-center gap-2">
+          {!isMock ? (
+            <div className="flex flex-col items-center gap-1 text-center">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 rounded-full text-xs font-mono">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                Live Supabase Connected
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  localStorage.setItem('force_mock', 'true');
+                  window.location.reload();
+                }}
+                className="text-[10px] text-amber-400 hover:text-amber-300 font-medium underline mt-1.5 cursor-pointer"
+              >
+                Switch to Simulated Local Mode to test demo without DB setup
+              </button>
             </div>
           ) : (
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 rounded-full text-xs font-mono">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-              Live Supabase Connected
+            <div className="flex flex-col items-center gap-1 text-center">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-500/10 border border-amber-500/30 text-amber-300 rounded-full text-xs font-mono">
+                <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+                Simulated Local Mode
+              </div>
+              {localStorage.getItem('force_mock') === 'true' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    localStorage.removeItem('force_mock');
+                    window.location.reload();
+                  }}
+                  className="text-[10px] text-emerald-400 hover:text-emerald-300 font-medium underline mt-1.5 cursor-pointer"
+                >
+                  Click here to switch back to Live database mode
+                </button>
+              )}
             </div>
           )}
-        </div>
-
-        {/* TABS SELECTOR */}
-        <div className="grid grid-cols-2 p-1 bg-slate-900/60 rounded-xl mb-5 border border-slate-800">
-          <button
-            type="button"
-            onClick={() => {
-              setIsRegistering(false);
-              setErrorMsg('');
-              setSuccessMsg('');
-            }}
-            className={`py-2 px-3 text-xs font-semibold rounded-lg transition duration-200 ${
-              !isRegistering
-                ? 'bg-gradient-to-r from-emerald-500/15 to-teal-500/15 text-emerald-400 border border-emerald-500/25 shadow-inner'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            Sign In
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setIsRegistering(true);
-              setErrorMsg('');
-              setSuccessMsg('');
-            }}
-            className={`py-2 px-3 text-xs font-semibold rounded-lg transition duration-200 ${
-              isRegistering
-                ? 'bg-gradient-to-r from-emerald-500/15 to-teal-500/15 text-emerald-400 border border-emerald-500/25 shadow-inner'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            Register Admin
-          </button>
         </div>
 
         {successMsg && (
@@ -155,10 +138,10 @@ export default function LoginView({ onSuccess }: LoginViewProps) {
         )}
 
         {/* DEFAULT ACCOUNT PROMPT FOR EASY TESTING */}
-        {!isRegistering && email === 'admin@faruk.com' && (
+        {username === 'admin' && (
           <div className="mb-5 p-3 bg-slate-900/80 border border-slate-800 rounded-xl text-[11px] text-slate-400 flex justify-between items-center">
             <div>
-              <span className="font-bold text-slate-200">Test Account:</span> admin@faruk.com
+              <span className="font-bold text-slate-200">Default Admin ID:</span> admin
             </div>
             <button
               type="button"
@@ -172,28 +155,28 @@ export default function LoginView({ onSuccess }: LoginViewProps) {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5" htmlFor="email-input">
-              {isRegistering ? 'Register Admin Email' : 'Administrator Email'}
+            <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5" htmlFor="username-input">
+              Administrator Username / ID
             </label>
             <div className="relative">
               <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-500 pointer-events-none">
-                <Mail className="w-4.5 h-4.5" />
+                <User className="w-4.5 h-4.5" />
               </span>
               <input
-                id="email-input"
-                type="email"
+                id="username-input"
+                type="text"
                 required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="admin@faruk.com"
-                className="w-full pl-10 pr-4 py-3 text-sm glass-input rounded-xl"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="e.g. admin or username"
+                className="w-full pl-10 pr-4 py-3 text-sm glass-input rounded-xl text-white bg-slate-950/50 border border-slate-850 focus:border-emerald-500 focus:outline-none transition duration-200"
               />
             </div>
           </div>
 
           <div>
             <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5" htmlFor="password-input">
-              {isRegistering ? 'Choose Security Password' : 'Secret Security Password'}
+              Secret Security Password
             </label>
             <div className="relative">
               <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-500 pointer-events-none">
@@ -206,7 +189,7 @@ export default function LoginView({ onSuccess }: LoginViewProps) {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••••••"
-                className="w-full pl-10 pr-10 py-3 text-sm glass-input rounded-xl"
+                className="w-full pl-10 pr-10 py-3 text-sm glass-input rounded-xl text-white bg-slate-950/50 border border-slate-850 focus:border-emerald-500 focus:outline-none transition duration-200"
               />
               <button
                 type="button"
@@ -224,15 +207,13 @@ export default function LoginView({ onSuccess }: LoginViewProps) {
               id="login-submit-button"
               type="submit"
               disabled={loading}
-              className="w-full bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 font-bold py-3.5 px-4 rounded-xl text-white tracking-wide transition duration-300 transform hover:-translate-y-[1px] disabled:opacity-50 disabled:pointer-events-none shadow-lg shadow-emerald-500/20 active:scale-95"
+              className="w-full bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 font-bold py-3.5 px-4 rounded-xl text-white tracking-wide transition duration-300 transform hover:-translate-y-[1px] disabled:opacity-50 disabled:pointer-events-none shadow-lg shadow-emerald-500/20 active:scale-95 cursor-pointer"
             >
               {loading ? (
                 <div className="flex items-center justify-center gap-2">
                   <span className="inline-block animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></span>
-                  Processing Option...
+                  Authenticating...
                 </div>
-              ) : isRegistering ? (
-                'Create Admin Credentials'
               ) : (
                 'Unseal Admin Dashboard'
               )}
