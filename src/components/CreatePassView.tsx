@@ -140,7 +140,7 @@ export default function CreatePassView({ onNavigate, onSelectPass }: CreatePassV
     try {
       let uploadedPdfUrl = '';
       if (pdfFile) {
-        uploadedPdfUrl = await db.uploadPassPDF(pdfFile);
+        uploadedPdfUrl = await db.uploadPassPDF(pdfFile, dcNumber.trim().toUpperCase());
       }
 
       const newPassData = {

@@ -257,6 +257,42 @@ app.get("/api/pdf/:filename", (req, res) => {
   }
 });
 
+// Proxy Download Endpoint (Bypasses CORS and forces same-origin browser download)
+app.get("/api/download", async (req, res) => {
+  try {
+    const fileUrl = req.query.url as string;
+    const filename = (req.query.filename as string || "document.pdf").trim();
+    if (!fileUrl) {
+      return res.status(400).send("Missing URL parameter");
+    }
+
+    // Resolve URL (e.g. if relative, make it absolute)
+    let targetUrl = fileUrl;
+    if (fileUrl.startsWith("/")) {
+      targetUrl = `${req.protocol}://${req.get("host")}${fileUrl}`;
+    }
+
+    console.log(`[Proxy Download] Fetching: ${targetUrl}`);
+    const response = await fetch(targetUrl);
+    
+    if (!response.ok) {
+      return res.status(response.status).send(`Failed to fetch file: ${response.statusText}`);
+    }
+
+    const contentType = response.headers.get("content-type") || "application/pdf";
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+
+    res.setHeader("Content-Type", contentType);
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.send(buffer);
+  } catch (err: any) {
+    console.error("[Proxy Download] Error:", err);
+    res.status(500).send(`Proxy download error: ${err.message}`);
+  }
+});
+
 // Vite dynamic handler & dev pipeline integration
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {

@@ -95,53 +95,9 @@ export default function PublicPassView({ dcNumber, onBackToPortal, isAdmin }: Pu
     }
 
     try {
-      const urlToDownload = await db.resolvePdfUrl(pass.pdf_url);
-      if (!urlToDownload) throw new Error("Empty PDF URL");
-
-      // For base64 data: or local blob: URLs
-      if (urlToDownload.startsWith('blob:') || urlToDownload.startsWith('data:')) {
-        const link = document.createElement('a');
-        link.href = urlToDownload;
-        link.download = `DC-PASS-${pass.dc_number}.pdf`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        return;
-      }
-
-      // Try the most robust Ajax Blob download first to bypass iframe sandbox navigation restrictions
-      try {
-        const resp = await fetch(urlToDownload);
-        if (resp.ok) {
-          const blob = await resp.blob();
-          const blobUrl = URL.createObjectURL(blob);
-          const link = document.createElement('a');
-          link.href = blobUrl;
-          link.download = `DC-PASS-${pass.dc_number}.pdf`;
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-          setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
-          return; // Succeeded!
-        }
-      } catch (fetchErr) {
-        console.warn("Blob fetch download failed, falling back to direct location/window trigger:", fetchErr);
-      }
-
-      // Fallback: browser default navigation or window opening
-      const downloadUrl = urlToDownload.includes('?') 
-        ? `${urlToDownload}&download=true` 
-        : `${urlToDownload}?download=true`;
-      
-      const link = document.createElement('a');
-      link.href = downloadUrl;
-      link.target = "_blank";
-      link.download = `DC-PASS-${pass.dc_number}.pdf`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      await db.downloadPdf(pass.pdf_url, `DC-PASS-${pass.dc_number}.pdf`);
     } catch (err) {
-      console.error("All download routes failed:", err);
+      console.error("All download routes failed, falling back to print page:", err);
       window.print();
     }
   };

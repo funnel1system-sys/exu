@@ -2,8 +2,17 @@ import { createClient } from '@supabase/supabase-js';
 import { DCPass } from './types';
 
 // Read configuration from environment variables
-const supabaseUrl = ((import.meta as any).env?.VITE_SUPABASE_URL || '').trim();
-const supabaseAnonKey = ((import.meta as any).env?.VITE_SUPABASE_ANON_KEY || '').trim();
+const supabaseUrl = (
+  ((import.meta as any).env?.VITE_SUPABASE_URL) || 
+  ((import.meta as any).env?.SUPABASE_URL) || 
+  ''
+).trim();
+
+const supabaseAnonKey = (
+  ((import.meta as any).env?.VITE_SUPABASE_ANON_KEY) || 
+  ((import.meta as any).env?.NEXT_PUBLIC_SUPABASE_ANON_KEY) || 
+  ''
+).trim();
 
 // A robust URL validation utility to check for HTTP/HTTPS protocol and placeholders
 function isValidSupabaseUrl(url: string): boolean {
@@ -631,31 +640,81 @@ export const db = {
     return url;
   },
 
+  // Centrally handles PDF downloads through relative links or a secure same-origin CORS proxy
+  async downloadPdf(url: string, filename: string): Promise<void> {
+    if (!url) return;
+    const resolvedUrl = await db.resolvePdfUrl(url);
+    if (!resolvedUrl) return;
+
+    // 1. If it's a blob/data URL, download directly via simulation fallback link click
+    if (resolvedUrl.startsWith('blob:') || resolvedUrl.startsWith('data:')) {
+      const link = document.createElement('a');
+      link.href = resolvedUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      return;
+    }
+
+    // 2. If it's a relative local API PDF path, append ?download=true
+    if (resolvedUrl.startsWith('/api/pdf/')) {
+      const separator = resolvedUrl.includes('?') ? '&' : '?';
+      const downloadUrl = `${resolvedUrl}${separator}download=true`;
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      return;
+    }
+
+    // 3. For any other external / Supabase storage public URLs, proxy via /api/download to bypass client-side CORS completely!
+    try {
+      const proxyUrl = `/api/download?url=${encodeURIComponent(resolvedUrl)}&filename=${encodeURIComponent(filename)}`;
+      const link = document.createElement('a');
+      link.href = proxyUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (err) {
+      console.error('Download proxy execution failed, trying direct navigation sandbox opening fallback:', err);
+      const link = document.createElement('a');
+      link.href = resolvedUrl;
+      link.target = '_blank';
+      link.rel = 'noopener,noreferrer';
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+  },
+
   // Handle PDF upload to Supabase bucket or mock url
-  async uploadPassPDF(file: File): Promise<string> {
+  async uploadPassPDF(file: File, dcNumber?: string): Promise<string> {
     if (!isMock && realSupabase) {
       const fileExt = file.name.split('.').pop();
-      const fileName = `${Math.random().toString(36).substring(2, 15)}_${Date.now()}.${fileExt}`;
+      const prefix = dcNumber ? dcNumber.trim().toUpperCase() : `${Math.random().toString(36).substring(2, 11)}`;
+      const fileName = `${prefix}-${Date.now()}.${fileExt}`;
       const filePath = `passes/${fileName}`;
 
-      const { data, error } = await realSupabase.storage
-         .from('dc_passes_pdf')
-        .upload(filePath, file, {
-          cacheControl: '3600',
-          upsert: false
-        });
+      const { error: uploadError } = await realSupabase.storage
+        .from('dc-pdfs')
+        .upload(filePath, file);
 
-      if (error) {
-        console.error('PDF Storage upload failed:', error);
-        throw error;
+      if (uploadError) {
+        console.error('PDF Storage upload failed:', uploadError);
+        throw uploadError;
       }
 
       // Get public URL
-      const { data: { publicUrl } } = realSupabase.storage
-        .from('dc_passes_pdf')
+      const { data: publicUrlData } = realSupabase.storage
+        .from('dc-pdfs')
         .getPublicUrl(filePath);
 
-      return publicUrl;
+      return publicUrlData.publicUrl;
     } else {
       try {
         // Convert file to Base64 to transfer electronically over JSON body
