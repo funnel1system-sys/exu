@@ -786,134 +786,20 @@ export const db = {
     }
   },
 
-  // Handle PDF upload to Supabase bucket or mock url
+  // Handle PDF upload directly to Base64 Data URL (fully guarantees same-origin & cross-device compatibility without 404s/broken containers)
   async uploadPassPDF(file: File, dcNumber?: string): Promise<string> {
-    if (!isMock && realSupabase) {
-      const fileExt = file.name.split('.').pop() || 'pdf';
-      const prefix = dcNumber ? dcNumber.trim().toUpperCase() : `${Math.random().toString(36).substring(2, 11)}`;
-      const fileName = `${prefix}-${Date.now()}.${fileExt}`;
-      const filePath = `passes/${fileName}`;
-
-      try {
-        const { error: uploadError } = await realSupabase.storage
-          .from('dc-pdfs')
-          .upload(filePath, file);
-
-        if (uploadError) {
-          const errMsg = uploadError.message || '';
-          
-          // Check if bucket does not exist
-          if (
-            errMsg.toLowerCase().includes('bucket not found') || 
-            errMsg.toLowerCase().includes('does not exist') ||
-            (uploadError as any).status === 404 ||
-            (uploadError as any).statusCode === '404'
-          ) {
-            console.log("Bucket 'dc-pdfs' not found, attempting to create it automatically...");
-            try {
-              // Attempt programmatic creation
-              const { error: createError } = await realSupabase.storage.createBucket('dc-pdfs', {
-                public: true,
-                allowedMimeTypes: ['application/pdf', 'image/*'],
-                fileSizeLimit: 52428800 // 50MB
-              });
-
-              if (!createError) {
-                console.log("Bucket 'dc-pdfs' created successfully! Retrying file upload...");
-                const { error: retryError } = await realSupabase.storage
-                  .from('dc-pdfs')
-                  .upload(filePath, file);
-
-                if (retryError) throw retryError;
-
-                const { data: publicUrlData } = realSupabase.storage
-                  .from('dc-pdfs')
-                  .getPublicUrl(filePath);
-
-                return publicUrlData.publicUrl;
-              } else {
-                throw createError;
-              }
-            } catch (err: any) {
-              console.error("Bucket creation failed, manual fallback instruction needed:", err);
-              throw new Error(
-                `Supabase Storage bucket "dc-pdfs" is missing. Please log in to your Supabase Console, navigate to "Storage", click "New Bucket", name it exactly "dc-pdfs", toggle "Public bucket" to ENABLED, and verify you add a Storage Policy allowing anonymous/authenticated uploads.`
-              );
-            }
-          }
-
-          // Handle unauthorized / security policies
-          if (
-            errMsg.toLowerCase().includes('policy') || 
-            errMsg.toLowerCase().includes('row-level security') ||
-            errMsg.toLowerCase().includes('permission') ||
-            (uploadError as any).status === 403 ||
-            (uploadError as any).statusCode === '403'
-          ) {
-            throw new Error(
-              `Upload failed due to Row-Level Security (RLS) policies. Please go to your Supabase Console -> "Storage" -> click "dc-pdfs" -> "Policies" -> add an "Insert" policy allowing public anonymous uploads, or allow authenticated users to upload files.`
-            );
-          }
-
-          throw uploadError;
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === 'string') {
+          resolve(reader.result);
+        } else {
+          reject(new Error("File conversion returned non-string format"));
         }
-
-        const { data: publicUrlData } = realSupabase.storage
-          .from('dc-pdfs')
-          .getPublicUrl(filePath);
-
-        return publicUrlData.publicUrl;
-      } catch (err: any) {
-        console.error('PDF Storage upload exception:', err);
-        const errMsg = err.message || '';
-        if (errMsg.toLowerCase().includes('bucket') || errMsg.toLowerCase().includes('exist')) {
-          throw new Error(
-            `Bucket "dc-pdfs" not found in your Supabase storage. Actions required:\n` +
-            `1. Go to your Supabase Dashboard -> Storage\n` +
-            `2. Click "New Bucket" and name it "dc-pdfs"\n` +
-            `3. Toggle "Public bucket" to ACTIVE\n` +
-            `4. Go to policies and ensure inserting files is allowed.`
-          );
-        }
-        if (errMsg.toLowerCase().includes('policy') || errMsg.toLowerCase().includes('permission') || errMsg.toLowerCase().includes('row-level')) {
-          throw new Error(
-            `Storage Security Violation (RLS). Please open Supabase -> Storage -> click "dc-pdfs" bucket -> select "Policies", and create a policy allowing anyone (or authenticated users) to upload ("Insert") files.`
-          );
-        }
-        throw err;
-      }
-    } else {
-      try {
-        // Convert file to Base64 to transfer electronically over JSON body
-        const base64Data = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result as string);
-          reader.onerror = (e) => reject(e);
-          reader.readAsDataURL(file);
-        });
-
-        const resp = await fetch('/api/upload', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name: file.name,
-            base64: base64Data
-          })
-        });
-
-        if (resp.ok) {
-          const result = await resp.json();
-          return result.url; // e.g. /api/pdf/uniqid_filename.pdf
-        }
-      } catch (err) {
-        console.warn('API PDF upload failed, falling back to IndexedDB local offline mode:', err);
-      }
-
-      // Avoid raw large base64 inside localStorage which triggers QuotaExceededError; store the File/Blob directly into IndexedDB!
-      const key = `pdf_${Math.random().toString(36).substring(2, 11)}_${Date.now()}`;
-      await savePDFToIndexedDB(key, file);
-      return `indexeddb://${key}`;
-    }
+      };
+      reader.onerror = (e) => reject(e);
+      reader.readAsDataURL(file);
+    });
   }
 };
 
