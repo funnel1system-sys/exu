@@ -806,9 +806,21 @@ export const db = {
       setTimeout(() => {
         URL.revokeObjectURL(blobUrl);
       }, 8000);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Unified download pipeline failed:', err);
-      // Fallback: Try a simple direct window open/download if fetch was blocked by CORS
+      const errMsg = err?.message || '';
+      
+      // If the file was not found, resolved to dummy offline database protocol, or returned HTML fallback,
+      // fail cleanly so the parent component can invoke the native window.print() layout fallback!
+      if (
+        resolvedUrl.startsWith('indexeddb://') ||
+        errMsg.includes('HTML index fallback') ||
+        errMsg.includes('HTTP 404')
+      ) {
+        throw err;
+      }
+
+      // Fallback only for possible network/CORS or other browser level blocked fetched URLs
       const link = document.createElement('a');
       link.href = resolvedUrl;
       link.target = '_blank';
@@ -819,8 +831,76 @@ export const db = {
     }
   },
 
-  // Handle PDF upload directly to Base64 Data URL (fully guarantees same-origin & cross-device compatibility without 404s/broken containers)
+  // Handle PDF upload using a tiered strategies approach (Supabase bucket -> Express Backend APIs -> IndexedDB -> Raw Base64 fallback)
+  // This fully matches production expectations where files are served publicly to client scanning terminals
   async uploadPassPDF(file: File, dcNumber?: string): Promise<string> {
+    const cleanDc = dcNumber ? dcNumber.trim().toUpperCase() : `${Math.random().toString(36).substring(2, 11)}`;
+
+    // Tier 1: Real Supabase bucket storage (if live connected)
+    if (!isMock && realSupabase) {
+      try {
+        const fileExt = file.name.split('.').pop() || 'pdf';
+        const fileName = `${cleanDc}-${Date.now()}.${fileExt}`;
+        const filePath = `passes/${fileName}`;
+
+        const { error: uploadError } = await realSupabase.storage
+          .from('dc-pdfs')
+          .upload(filePath, file);
+
+        if (uploadError) {
+          throw uploadError;
+        }
+
+        const { data: publicUrlData } = realSupabase.storage
+          .from('dc-pdfs')
+          .getPublicUrl(filePath);
+
+        if (publicUrlData?.publicUrl) {
+          return publicUrlData.publicUrl;
+        }
+      } catch (err) {
+        console.warn('[DC Pass Portal] Supabase PDF bucket upload failed, trying server disk fallback:', err);
+      }
+    }
+
+    // Tier 2: Dedicated Server Filesystem upload (works on local Express + container runs)
+    try {
+      const base64Data = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = (e) => reject(e);
+        reader.readAsDataURL(file);
+      });
+
+      const resp = await fetch('/api/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: file.name,
+          base64: base64Data
+        })
+      });
+
+      if (resp.ok) {
+        const result = await resp.json();
+        if (result.url) {
+          return result.url; // e.g. /api/pdf/uniqid_filename_invoice.pdf
+        }
+      }
+    } catch (err) {
+      console.warn('[DC Pass Portal] Express API upload failed, falling back to Local IndexedDB:', err);
+    }
+
+    // Tier 3: Local Offline IndexedDB storage (prevents exceeding 5MB LocalStorage quota)
+    const storeKey = `pdf_${cleanDc}_${Date.now()}`;
+    try {
+      await savePDFToIndexedDB(storeKey, file);
+      return `indexeddb://${storeKey}`;
+    } catch (err) {
+      console.warn('[DC Pass Portal] IndexedDB storage fallback write failed, adopting raw Base64 data string:', err);
+    }
+
+    // Tier 4: Base64 string fallback
     return new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => {
