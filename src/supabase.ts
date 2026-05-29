@@ -737,10 +737,24 @@ export const db = {
       return;
     }
 
-    // 2. If it's a relative local API PDF path, append ?download=true
+    // 2. Resolve if the URL belongs to our local API (either starts with or contains /api/pdf/)
+    let isLocalPdf = false;
+    let localPath = '';
+    
     if (resolvedUrl.startsWith('/api/pdf/')) {
-      const separator = resolvedUrl.includes('?') ? '&' : '?';
-      const downloadUrl = `${resolvedUrl}${separator}download=true`;
+      isLocalPdf = true;
+      localPath = resolvedUrl;
+    } else {
+      const apiIndex = resolvedUrl.indexOf('/api/pdf/');
+      if (apiIndex !== -1) {
+        isLocalPdf = true;
+        localPath = resolvedUrl.substring(apiIndex);
+      }
+    }
+
+    if (isLocalPdf) {
+      const separator = localPath.includes('?') ? '&' : '?';
+      const downloadUrl = `${localPath}${separator}download=true`;
       const link = document.createElement('a');
       link.href = downloadUrl;
       link.download = filename;
