@@ -778,6 +778,35 @@ export const authService = {
     }
   },
 
+  // Signs up standard administrator
+  async signUp(email: string, password: string): Promise<{ success: boolean; user?: any; error?: string; message?: string }> {
+    if (!isMock && realSupabase) {
+      const { data, error } = await realSupabase.auth.signUp({
+        email,
+        password
+      });
+      if (error) {
+        return { success: false, error: error.message };
+      }
+      
+      const user = data.user;
+      const session = data.session;
+      if (session) {
+        return { success: true, user, message: 'Account created and authenticated successfully!' };
+      }
+      return { 
+        success: true, 
+        user, 
+        message: 'Account registered! Since email confirmation is enabled by default in Supabase, please check your email inbox to confirm your account or disable email verification in your Supabase Auth dashboard.' 
+      };
+    } else {
+      const cleanedEmail = email.trim();
+      const mockUser = { id: `admin-simulated-${Date.now()}`, email: cleanedEmail, role: 'admin' };
+      localStorage.setItem(AUTH_KEY, JSON.stringify({ ...mockUser, loggedIn: true }));
+      return { success: true, user: mockUser, message: 'Simulated admin account setup completed!' };
+    }
+  },
+
   // Signs out standard administrator
   async signOut(): Promise<void> {
     if (!isMock && realSupabase) {
