@@ -1,227 +1,219 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
+import { useState, useEffect } from 'react';
+import LoginView from './components/LoginView';
+import Sidebar from './components/Sidebar';
+import DashboardView from './components/DashboardView';
+import CreatePassView from './components/CreatePassView';
+import AllPassesView from './components/AllPassesView';
+import PublicPassView from './components/PublicPassView';
+import NotFoundView from './components/NotFoundView';
+import { ViewType } from './types';
+import { authService, extractDCNumber } from './supabase';
+import { ShieldCheck, LogOut, Loader2, Sparkles } from 'lucide-react';
 
-import { useEffect, useState } from "react";
-import { DualModeProvider, useDualMode } from "./context/DualModeContext";
-import AuthCard from "./components/AuthCard";
-import ThemeToggle from "./components/ThemeToggle";
-import AdminDashboard from "./components/AdminDashboard";
-import UserDashboard from "./components/UserDashboard";
-import VerificationPage from "./components/VerificationPage";
-import { 
-  ShieldCheck, LogOut, Landmark, User, ShieldAlert, BookOpen, ExternalLink, QrCode
-} from "lucide-react";
-
-function RootPageController() {
-  const { user, loading, signOut, firebaseActive } = useDualMode();
+export default function App() {
+  const [currentUser, setCurrentUser] = useState<any | null>(null);
+  const [loadingSession, setLoadingSession] = useState(true);
   
-  // Custom router state triggered dynamically by scanning or URLs
-  const [verifyPassId, setVerifyPassId] = useState<string | null>(null);
-  const [manualVerifyMode, setManualVerifyMode] = useState(false);
+  // Custom router state
+  const [currentView, setCurrentView] = useState<ViewType>('dashboard');
+  const [queriedDCNumber, setQueriedDCNumber] = useState('');
+  const [isOnLoginPath, setIsOnLoginPath] = useState(false);
 
-  useEffect(() => {
+  // Handle routing by parsing window locations (both pathname and hash falls)
+  const parseLocalRoute = () => {
     const path = window.location.pathname;
-    if (path.startsWith("/verify/")) {
-      const passId = decodeURIComponent(path.split("/verify/")[1] || "").trim();
-      if (passId) {
-        setVerifyPassId(passId);
+    const hash = window.location.hash;
+
+    // Check login route path or hash
+    const isLogin = path === '/login' || path === '/login/' || hash === '#/login' || hash === '#login';
+    setIsOnLoginPath(isLogin);
+
+    if (path.startsWith('/pass/')) {
+      // E.g., /pass/STQL14010368060001000600
+      const dcNum = extractDCNumber(path);
+      if (dcNum) {
+        setQueriedDCNumber(dcNum);
+        setCurrentView('public-verify');
+        return true;
       }
-    } else if (path.startsWith("/pass/")) {
-      const passId = decodeURIComponent(path.split("/pass/")[1] || "").trim();
-      if (passId) {
-        setVerifyPassId(passId);
+    } else if (hash.startsWith('#/pass/')) {
+      // E.g., #/pass/STQL14010368060001000600
+      const dcNum = extractDCNumber(hash);
+      if (dcNum) {
+        setQueriedDCNumber(dcNum);
+        setCurrentView('public-verify');
+        return true;
+      }
+    } else if (hash === '#/create-pass' || hash === '#create-pass') {
+      setCurrentView('create-pass');
+    } else if (hash === '#/all-passes' || hash === '#all-passes') {
+      setCurrentView('all-passes');
+    } else {
+      setCurrentView('dashboard');
+    }
+    return false;
+  };
+
+  // Bind popstate events so standard browser Forward/Back buttons operate perfectly
+  useEffect(() => {
+    const handlePopState = () => {
+      parseLocalRoute();
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    window.addEventListener('hashchange', handlePopState);
+    
+    // Initial evaluation
+    const isPublicVerify = parseLocalRoute();
+
+    // Check active login session on load
+    async function checkActiveSession() {
+      try {
+        const user = await authService.getCurrentUser();
+        if (user) {
+          setCurrentUser(user);
+        }
+      } catch (err) {
+        console.error('Session handoff error:', err);
+      } finally {
+        setLoadingSession(false);
       }
     }
+    checkActiveSession();
+
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      window.removeEventListener('hashchange', handlePopState);
+    };
   }, []);
 
-  const handleBackToHome = () => {
-    setVerifyPassId(null);
-    setManualVerifyMode(false);
-    // Overwrite route prefix visually
-    if (window.location.pathname.startsWith("/verify/") || window.location.pathname.startsWith("/pass/")) {
-      window.history.pushState({}, "", "/");
+  // Soft push-routing helper (cleans path without tab resets)
+  const navigateToLocalPath = (view: ViewType, dcNum?: string) => {
+    if (view === 'public-verify' && dcNum) {
+      setQueriedDCNumber(dcNum);
+      setCurrentView('public-verify');
+      
+      // Update browser URL
+      const targetPath = `/pass/${dcNum}`;
+      window.history.pushState({ view, dcNum }, '', targetPath);
+    } else {
+      setCurrentView(view);
+      setIsOnLoginPath(false);
+      
+      // Map views to hash configurations
+      const hash = view === 'dashboard' ? '' : `#/${view}`;
+      window.history.pushState({ view }, '', '/' + hash);
     }
   };
 
-  const handleNavigateVerifyDirect = () => {
-    setManualVerifyMode(true);
+  const handleLoginSuccess = (userSession: any) => {
+    setCurrentUser(userSession);
+    // Return to dashboard after successful login
+    navigateToLocalPath('dashboard');
   };
 
-  if (loading) {
+  const handleAdminLogout = async () => {
+    await authService.signOut();
+    setCurrentUser(null);
+    setIsOnLoginPath(false);
+    // Clean target back to root (triggering 404 security blocker)
+    window.history.pushState({}, '', '/');
+    setCurrentView('dashboard');
+  };
+
+  if (loadingSession) {
     return (
-      <div className="min-h-screen bg-slate-100 dark:bg-slate-950 flex flex-col items-center justify-center p-6">
-        <div className="relative w-20 h-20 mb-4">
-          <div className="absolute inset-0 border-4 border-indigo-600/30 rounded-full"></div>
-          <div className="absolute inset-0 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
-          <div className="absolute inset-4 bg-white dark:bg-slate-900 border border-slate-250/30 dark:border-slate-800 rounded-full flex items-center justify-center">
-            <Landmark className="w-6 h-6 text-indigo-500 animate-pulse" />
-          </div>
-        </div>
-        <h3 className="font-sans text-xs font-black uppercase tracking-widest text-slate-700 dark:text-slate-300">
-          Digital DC Pass Hub
-        </h3>
-        <p className="text-[10px] text-slate-400 mt-1 uppercase font-semibold font-mono">
-          Syncing cryptographic security registers...
-        </p>
+      <div className="flex flex-col items-center justify-center min-h-screen bg-[#070b13] text-gray-400 font-mono">
+        <Loader2 className="w-10 h-10 text-emerald-400 animate-spin mb-4" />
+        <span className="text-xs animate-pulse">Consulting Secure Session Handshake...</span>
       </div>
     );
   }
 
-  // Route to Public verification page if active URL match OR manually triggered
-  if (verifyPassId !== null || manualVerifyMode) {
+  // PUBLIC PASS PAGE - RENDER OUTSIDE MAIN LAYOUT
+  if (currentView === 'public-verify' && queriedDCNumber) {
     return (
-      <VerificationPage 
-        initialPassId={verifyPassId || undefined} 
-        onBackToHome={handleBackToHome} 
+      <PublicPassView 
+        dcNumber={queriedDCNumber} 
+        isAdmin={!!currentUser}
+        onBackToPortal={() => {
+          // If already logged in, take them back to the portal dashboard
+          if (currentUser) {
+            navigateToLocalPath('all-passes');
+          } else {
+            // Otherwise reset path to /login so they don't get a 404 block
+            window.history.pushState({}, '', '/login');
+            setIsOnLoginPath(true);
+            setCurrentView('dashboard');
+          }
+        }} 
       />
     );
   }
 
-  // Not logged in: Show Authentication card
-  if (!user) {
-    return (
-      <div className="min-h-screen bg-slate-100 dark:bg-slate-950 py-12 px-4 flex flex-col items-center justify-center space-y-8">
-        
-        {/* Floating Controls at Top Right */}
-        <div className="fixed top-6 right-6 flex items-center gap-3">
-          <button
-            onClick={handleNavigateVerifyDirect}
-            className="px-4 py-2 bg-indigo-600/10 border border-indigo-500/20 text-indigo-700 dark:text-indigo-400 hover:bg-indigo-600/20 text-xs font-bold uppercase tracking-wider rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
-          >
-            <QrCode className="w-4 h-4" />
-            Verify Pass
-          </button>
-          <ThemeToggle />
-        </div>
-
-        {/* Central Auth Interface */}
-        <AuthCard />
-
-        {/* Informative Help Guide footer */}
-        <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 rounded-2xl shadow-md text-xs leading-relaxed space-y-3">
-          <div className="flex gap-2 items-center text-slate-800 dark:text-slate-200">
-            <BookOpen className="w-4 h-4 text-indigo-500" />
-            <h4 className="font-bold uppercase tracking-wide">Quick Operations Guide</h4>
-          </div>
-          <p className="text-slate-500 dark:text-slate-400">
-            The pass digital manager provides automatic PDF field extraction. Sign up using the testing controls on our authentication card to immediately preview user uploads and admin compliance approvals.
-          </p>
-        </div>
-
-      </div>
-    );
+  // GUEST STATE - NOT LOGGED IN
+  if (!currentUser) {
+    if (isOnLoginPath) {
+      return <LoginView onSuccess={handleLoginSuccess} />;
+    } else {
+      return <NotFoundView />;
+    }
   }
 
+  // AUTHENTICATED STATE - RENDER SIDEBAR PANEL
   return (
-    <div className="min-h-screen bg-slate-100 dark:bg-slate-950 text-slate-800 dark:text-slate-100 font-sans flex flex-col">
+    <div className="flex min-h-screen bg-[#070b13]">
       
-      {/* Central Admin/User Header Menu */}
-      <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 sticky top-0 z-40 shadow-xs">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
-          
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-indigo-600 rounded-xl text-white">
-              <Landmark className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-black tracking-tight text-slate-900 dark:text-slate-50 uppercase">
-                  DC Pass Hub
-                </span>
-                <span className={`px-1.5 py-0.5 text-[8px] uppercase tracking-wider font-extrabold rounded-md ${
-                  user.role === "admin" ? "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-450" : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400"
-                }`}>
-                  {user.role} console
-                </span>
-              </div>
-              <p className="text-[9px] text-slate-400 font-medium">
-                Official Compliance Validation System
-              </p>
-            </div>
-          </div>
+      {/* SIDEBAR NAVIGATION SHELL */}
+      <Sidebar 
+        currentView={currentView}
+        onNavigate={(view) => navigateToLocalPath(view)}
+        onLogout={handleAdminLogout}
+        adminEmail={currentUser.email}
+      />
 
-          <div className="flex items-center gap-4">
-            
-            {/* User profile parameters */}
-            <div className="hidden md:flex items-center gap-2 border-r border-slate-200 dark:border-slate-800 pr-4 text-right">
-              <div>
-                <span className="text-[11px] font-black text-slate-800 dark:text-slate-100 block">
-                  {user.displayName || "Authorized staff"}
-                </span>
-                <span className="text-[9px] font-mono text-slate-400 block font-semibold leading-none">
-                  {user.email} {user.department ? `| ${user.department}` : ""}
-                </span>
-              </div>
-              <div className="p-2 bg-slate-50 dark:bg-slate-800 border border-slate-205/30 dark:border-slate-700 rounded-xl">
-                <User className="w-4 h-4 text-indigo-500" />
-              </div>
-            </div>
-
-            {/* Public search bar query redirect */}
-            <button
-              onClick={handleNavigateVerifyDirect}
-              className="px-3.5 py-2.5 bg-indigo-600/10 border border-indigo-500/20 text-indigo-700 dark:text-indigo-400 hover:bg-indigo-600/20 text-xs font-bold uppercase tracking-wider rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
-            >
-              <QrCode className="w-4 h-4" />
-              Verify Pass
-            </button>
-
-            {/* Quick dashboard custom toggle */}
-            <ThemeToggle />
-
-            <button
-              onClick={() => signOut()}
-              className="p-2.5 rounded-xl border border-red-200 dark:border-red-950 text-red-650 hover:bg-red-50 dark:hover:bg-red-950/20 transition-all cursor-pointer shadow-xs"
-              title="Portal Log Out"
-            >
-              <LogOut className="w-5 h-5" />
-            </button>
-
-          </div>
-
-        </div>
-      </header>
-
-      {/* Main Panel Content wrapper */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      {/* CORE WORKSPACE PANEL */}
+      <main className="flex-1 min-h-screen md:p-8 p-4 pb-24 md:pb-8 max-w-7xl mx-auto overflow-y-auto">
         
-        {/* Dynamic DB indicator flag warning banner */}
-        {!firebaseActive && (
-          <div className="mb-6 p-4 bg-amber-500/10 border border-amber-500/30 rounded-2xl flex items-start gap-3.5 text-xs text-amber-800 dark:text-amber-400 leading-normal">
-            <ShieldAlert className="w-5 h-5 flex-shrink-0 text-amber-600 mt-0.5" />
-            <div>
-              <span className="font-extrabold uppercase tracking-wider block mb-0.5">Iframe Isolation Sandbox Warning</span>
-              We are utilizing our high-fidelity client-only database simulation because the Firebase configuration is not currently provisioned via UI tools. No credentials or files will leak to third-party endpoints, and operations are preserved securely in your browser cache.
-            </div>
+        {/* TOP COMPLIANCE NOTIFIER BLOCK */}
+        <header className="flex justify-between items-center mb-6 border-b border-slate-900 pb-4 no-print">
+          <div className="flex items-center gap-2 font-mono text-[10px] uppercase font-black text-emerald-400">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse inline-block"></span>
+            <span>SECURE SYSTEM WORKSPACE (SSL ACTIVE)</span>
           </div>
-        )}
+          
+          <div className="hidden md:flex items-center gap-1.5 text-xs text-gray-400">
+            <span>Server Time (UTC):</span>
+            <span className="font-mono text-white bg-slate-950 px-2 py-0.5 rounded border border-slate-800">2026-05-27 12:33:22</span>
+          </div>
+        </header>
 
-        {/* Sub-view router mapping */}
-        {user.role === "admin" ? <AdminDashboard /> : <UserDashboard />}
+        {/* ACTIVE COMPONENT VIEW ROUTING */}
+        <div className="animate-fade-in">
+          {currentView === 'dashboard' && (
+            <DashboardView 
+              onNavigate={(view) => navigateToLocalPath(view)} 
+              onSelectPass={(dcNumber) => navigateToLocalPath('public-verify', dcNumber)} 
+            />
+          )}
+
+          {currentView === 'create-pass' && (
+            <CreatePassView 
+              onNavigate={(view) => navigateToLocalPath(view)} 
+              onSelectPass={(dcNumber) => navigateToLocalPath('public-verify', dcNumber)}
+            />
+          )}
+
+          {currentView === 'all-passes' && (
+            <AllPassesView 
+              onSelectPass={(dcNumber) => navigateToLocalPath('public-verify', dcNumber)} 
+              onNavigate={(view) => navigateToLocalPath(view)}
+            />
+          )}
+        </div>
 
       </main>
 
-      {/* Corporate Platform Footer */}
-      <footer className="bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 py-6 text-center text-[10px] text-slate-400 dark:text-slate-500 font-mono tracking-wider">
-        <div className="max-w-7xl mx-auto px-4 flex flex-col md:flex-row justify-between items-center gap-2">
-          <span>© 2026 DIGITAL DC PASS HUB · ALL RECORDS PROTECTED</span>
-          <span className="flex items-center gap-1.5">
-            <span className={`w-2.5 h-2.5 rounded-full ${firebaseActive ? "bg-emerald-500 animate-pulse" : "bg-teal-500"}`}></span>
-            {firebaseActive ? "SECURE FIREBASE BACKEND ROUTE" : "SECURE OFFLINE SANDBOX SIMULATION"}
-          </span>
-        </div>
-      </footer>
-
     </div>
-  );
-}
-
-export default function App() {
-  return (
-    <DualModeProvider>
-      <RootPageController />
-    </DualModeProvider>
   );
 }

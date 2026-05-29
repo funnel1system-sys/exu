@@ -1,99 +1,34 @@
 /**
- * @license
- * SPDX-License-Identifier: Apache-2.0
+ * Typographies and interfaces for the DC Pass Portal
  */
 
-export type UserRole = "user" | "admin";
-
-export interface UserProfile {
-  uid: string;
-  email: string;
-  displayName?: string;
-  role: UserRole;
-  department?: string;
-  createdAt: string;
-}
-
-export type PassStatus = "Pending" | "Approved" | "Rejected";
-
 export interface DCPass {
-  id: string; // Document ID (pass status verification string)
-  passNumber: string;
-  holderName: string;
-  vehicleNumber?: string;
-  route?: string;
-  department?: string;
-  issueDate?: string; // YYYY-MM-DD
-  expiryDate?: string; // YYYY-MM-DD
-  status: PassStatus;
-  pdfUrl?: string; // file URL or download location
-  pdfBase64?: string; // stored base64 attachment
-  pdfFileName?: string; // original uploaded file name
-  uploadedBy: string; // User UID
-  uploaderEmail?: string;
-  notes?: string;
-  qrCode?: string; // verification text or URL
-  verifiedCount?: number;
-  createdAt: string;
-  updatedAt: string;
-
-  // Gujarat e-Pass compliance details
-  royaltyIssuedOn?: string;
-  carrierType?: string;
-  mineralName?: string;
-  netWeight?: string;
-  netWeightWords?: string;
-  concessionHolder?: string;
-  sourcePlace?: string;
-  purchaserName?: string;
-  destinationAddress?: string;
-  distance?: string;
-  journeyStart?: string;
-  journeyEnd?: string;
-  routeName?: string;
+  id: string;
+  dc_number: string;
+  vehicle_number: string;
+  driver_name: string;
+  driver_mobile: string;
+  license_number: string;
+  mineral_name: string;
+  net_weight: string; // net weight can be in string/number format, keeping as string to handle details easily
+  concession_holder: string;
+  source_place: string;
+  destination: string;
+  journey_start: string; // Journey Start datetime string
+  journey_end: string;   // Journey End datetime string
+  route_name: string;
+  transporter_name: string;
+  buyer_mobile: string;
+  pan_gstin: string;
+  gps_details: string;
+  royalty_issued?: string;
   duration?: string;
   checkpost?: string;
-  driverName?: string;
-  driverLicense?: string;
-  driverMobile?: string;
-  panGst?: string;
-  gpsDetails?: string;
-  transporterName?: string;
-  buyerMobile?: string;
+  purchaser_name?: string;
+  distance?: string;
+  pdf_url?: string;
+  created_at: string;
+  status: 'active' | 'pending' | 'expired';
 }
 
-export interface AuditLog {
-  id: string;
-  passId?: string;
-  action: "CREATE" | "APPROVE" | "REJECT" | "EDIT" | "DELETE" | "VERIFY" | "REGISTER";
-  actorUid?: string;
-  actorEmail?: string;
-  details: string;
-  timestamp: string;
-}
-
-export enum OperationType {
-  CREATE = "create",
-  UPDATE = "update",
-  DELETE = "delete",
-  LIST = "list",
-  GET = "get",
-  WRITE = "write",
-}
-
-export interface FirestoreErrorInfo {
-  error: string;
-  operationType: OperationType;
-  path: string | null;
-  authInfo: {
-    userId?: string | null;
-    email?: string | null;
-    emailVerified?: boolean | null;
-    isAnonymous?: boolean | null;
-    tenantId?: string | null;
-    providerInfo?: {
-      providerId?: string | null;
-      email?: string | null;
-    }[];
-  };
-}
+export type ViewType = 'dashboard' | 'create-pass' | 'all-passes' | 'public-verify';
