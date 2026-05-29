@@ -219,6 +219,85 @@ export function initializeLocalDB() {
   }
 }
 
+/**
+ * Safely parses any date/time string (like "29/05/2026 06:00:00 PM" or simply text)
+ * and formats it as standard ISO-8601 string so that PostgreSQL accepts it flawlessly
+ * under standard 'timestamp with time zone' column structures.
+ */
+export function parseAndFormatToISO(dateStr: string): string {
+  if (!dateStr) return '';
+  const trimmed = dateStr.trim();
+
+  // Try standard Date parsing
+  let d = new Date(trimmed);
+  if (!isNaN(d.getTime()) && !trimmed.includes('/')) {
+    return d.toISOString();
+  }
+
+  // Handle DD/MM/YYYY hh:mm:ss AM/PM custom format
+  if (trimmed.includes('/')) {
+    try {
+      const parts = trimmed.split(/\s+/);
+      if (parts.length >= 2) {
+        const dateParts = parts[0].split('/'); // [DD, MM, YYYY]
+        const timeParts = parts[1].split(':'); // [hh, mm, ss]
+        let hours = parseInt(timeParts[0] || '0', 10);
+        const minutes = parseInt(timeParts[1] || '0', 10);
+        const seconds = parseInt(timeParts[2] || '0', 10);
+        
+        const ampm = parts[2] ? parts[2].toUpperCase() : '';
+        if (ampm === 'PM' && hours < 12) {
+          hours += 12;
+        } else if (ampm === 'AM' && hours === 12) {
+          hours = 0;
+        }
+        
+        const day = parseInt(dateParts[0], 10);
+        const month = parseInt(dateParts[1], 10) - 1;
+        const year = parseInt(dateParts[2], 10);
+        
+        const parsed = new Date(year, month, day, hours, minutes, seconds);
+        if (!isNaN(parsed.getTime())) {
+          return parsed.toISOString();
+        }
+      } else if (parts.length === 1) {
+        // Simple DD/MM/YYYY
+        const dateParts = parts[0].split('/');
+        const day = parseInt(dateParts[0], 10);
+        const month = parseInt(dateParts[1], 10) - 1;
+        const year = parseInt(dateParts[2], 10);
+        const parsed = new Date(year, month, day, 0, 0, 0);
+        if (!isNaN(parsed.getTime())) {
+          return parsed.toISOString();
+        }
+      }
+    } catch (e) {
+      console.warn('parseAndFormatToISO helper failed:', e);
+    }
+  }
+
+  // If parsing fails, return the string as-is. Under converted column type text, anything goes!
+  return trimmed;
+}
+
+/**
+ * Preprocess payload dates to keep them standard and avoid Postgres timestamp parsing range errors.
+ */
+export function prepareSupabasePayload(fields: any): any {
+  if (!fields) return fields;
+  const result = { ...fields };
+  if (result.journey_start !== undefined) {
+    result.journey_start = parseAndFormatToISO(result.journey_start);
+  }
+  if (result.journey_end !== undefined) {
+    result.journey_end = parseAndFormatToISO(result.journey_end);
+  }
+  if (result.royalty_issued !== undefined) {
+    result.royalty_issued = parseAndFormatToISO(result.royalty_issued);
+  }
+  return result;
+}
+
 // Extract original DC number from possible URLs, query strings, or suffix structures
 export function extractDCNumber(input: string): string {
   if (!input) return '';
@@ -403,7 +482,7 @@ export const db = {
       try {
         await realSupabase
            .from('dc_passes')
-          .insert([fallbackPass]);
+          .insert([prepareSupabasePayload(fallbackPass)]);
       } catch (err) {
         console.warn('Error saving fallback pass to Supabase:', err);
       }
@@ -485,10 +564,10 @@ export const db = {
     if (!isMock && realSupabase) {
       const { data, error } = await realSupabase
         .from('dc_passes')
-        .insert([{
+        .insert([prepareSupabasePayload({
           ...passData,
           status: computedStatus
-        }])
+        })])
         .select()
         .single();
  
@@ -541,7 +620,7 @@ export const db = {
     if (!isMock && realSupabase) {
       const { data, error } = await realSupabase
         .from('dc_passes')
-        .update(updatedFields)
+        .update(prepareSupabasePayload(updatedFields))
         .eq('id', id)
         .select()
         .single();

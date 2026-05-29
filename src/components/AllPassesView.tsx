@@ -69,40 +69,41 @@ export default function AllPassesView({ onSelectPass, onNavigate }: AllPassesVie
     }
   };
 
+  const parseFlexibleDateLoc = (dateStr: string): Date => {
+    let date = new Date(dateStr);
+    if (isNaN(date.getTime()) && dateStr && dateStr.includes('/')) {
+      try {
+        const parts = dateStr.trim().split(/\s+/);
+        if (parts.length >= 2) {
+          const dateParts = parts[0].split('/');
+          const timeParts = parts[1].split(':');
+          let hours = parseInt(timeParts[0] || '0', 10);
+          const minutes = parseInt(timeParts[1] || '0', 10);
+          const seconds = parseInt(timeParts[2] || '0', 10);
+          if (parts[2] && parts[2].toUpperCase() === 'PM' && hours < 12) {
+            hours += 12;
+          } else if (parts[2] && parts[2].toUpperCase() === 'AM' && hours === 12) {
+            hours = 0;
+          }
+          const parsed = new Date(
+            parseInt(dateParts[2], 10),
+            parseInt(dateParts[1], 10) - 1,
+            parseInt(dateParts[0], 10),
+            hours,
+            minutes,
+            seconds
+          );
+          if (!isNaN(parsed.getTime())) {
+            return parsed;
+          }
+        }
+      } catch (e) {}
+    }
+    return date;
+  };
+
   const getFlexibleStatus = (pass: DCPass): 'expired' | 'pending' | 'active' => {
     const now = new Date();
-    const parseFlexibleDateLoc = (dateStr: string): Date => {
-      let date = new Date(dateStr);
-      if (isNaN(date.getTime()) && dateStr && dateStr.includes('/')) {
-        try {
-          const parts = dateStr.trim().split(/\s+/);
-          if (parts.length >= 2) {
-            const dateParts = parts[0].split('/');
-            const timeParts = parts[1].split(':');
-            let hours = parseInt(timeParts[0] || '0', 10);
-            const minutes = parseInt(timeParts[1] || '0', 10);
-            const seconds = parseInt(timeParts[2] || '0', 10);
-            if (parts[2] && parts[2].toUpperCase() === 'PM' && hours < 12) {
-              hours += 12;
-            } else if (parts[2] && parts[2].toUpperCase() === 'AM' && hours === 12) {
-              hours = 0;
-            }
-            const parsed = new Date(
-              parseInt(dateParts[2], 10),
-              parseInt(dateParts[1], 10) - 1,
-              parseInt(dateParts[0], 10),
-              hours,
-              minutes,
-              seconds
-            );
-            if (!isNaN(parsed.getTime())) {
-              return parsed;
-            }
-          }
-        } catch (e) {}
-      }
-      return date;
-    };
     const start = parseFlexibleDateLoc(pass.journey_start);
     const end = parseFlexibleDateLoc(pass.journey_end);
     if (end < now) return 'expired';
@@ -181,16 +182,7 @@ export default function AllPassesView({ onSelectPass, onNavigate }: AllPassesVie
     setEditDriverMobile(pass.driver_mobile);
     setEditNetWeight(pass.net_weight);
     setEditRouteName(pass.route_name);
-    
-    // Format timestamp back to datetimelocal format
-    try {
-      const endParsed = new Date(pass.journey_end);
-      const pad = (n: number) => String(n).padStart(2, '0');
-      const timeStr = `${endParsed.getFullYear()}-${pad(endParsed.getMonth() + 1)}-${pad(endParsed.getDate())}T${pad(endParsed.getHours())}:${pad(endParsed.getMinutes())}`;
-      setEditJourneyEnd(timeStr);
-    } catch {
-      setEditJourneyEnd('');
-    }
+    setEditJourneyEnd(pass.journey_end || '');
   };
 
   const handleSaveEditSubmit = async (e: FormEvent) => {
@@ -198,8 +190,8 @@ export default function AllPassesView({ onSelectPass, onNavigate }: AllPassesVie
     if (!editingPass) return;
 
     try {
-      const endISO = new Date(editJourneyEnd).toISOString();
-      const statusCheck = new Date(endISO) < new Date() ? 'expired' : 'active';
+      const parsedEnd = parseFlexibleDateLoc(editJourneyEnd);
+      const statusCheck = parsedEnd < new Date() ? 'expired' : 'active';
 
       await db.updatePass(editingPass.id, {
         vehicle_number: editVehicle.trim().toUpperCase(),
@@ -207,7 +199,7 @@ export default function AllPassesView({ onSelectPass, onNavigate }: AllPassesVie
         driver_mobile: editDriverMobile.trim(),
         net_weight: editNetWeight.trim(),
         route_name: editRouteName.trim(),
-        journey_end: endISO,
+        journey_end: editJourneyEnd.trim(),
         status: statusCheck
       });
 
@@ -651,8 +643,9 @@ export default function AllPassesView({ onSelectPass, onNavigate }: AllPassesVie
               <div>
                 <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Extended Journey Expiration End</label>
                 <input
-                  type="datetime-local"
+                  type="text"
                   required
+                  placeholder="e.g. 29/05/2026 06:00:00 PM"
                   value={editJourneyEnd}
                   onChange={(e) => setEditJourneyEnd(e.target.value)}
                   className="w-full glass-input text-xs py-2 px-3 rounded-lg font-mono"

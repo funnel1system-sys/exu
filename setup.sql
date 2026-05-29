@@ -1,6 +1,11 @@
 -- DC PASS PORTAL - SUPABASE DATABASE INITIALIZATION SCHEMA
 -- Execute this within the 'SQL Editor' in your Supabase dashboard
 
+-- MIGRATION COMMANDS FOR EXISTING DATABASES:
+-- If you already have the 'dc_passes' table, run these SQL lines to convert date columns to text:
+--   ALTER TABLE public.dc_passes ALTER COLUMN journey_start TYPE text;
+--   ALTER TABLE public.dc_passes ALTER COLUMN journey_end TYPE text;
+
 -- Enable UUID extension
 create extension if not exists "uuid-ossp";
 
@@ -17,8 +22,8 @@ create table if not exists public.dc_passes (
   concession_holder text not null,
   source_place text not null,
   destination text not null,
-  journey_start timestamp with time zone not null,
-  journey_end timestamp with time zone not null,
+  journey_start text not null,
+  journey_end text not null,
   route_name text not null,
   transporter_name text not null,
   buyer_mobile text not null,
