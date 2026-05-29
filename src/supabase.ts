@@ -723,10 +723,29 @@ export const db = {
   // Centrally handles PDF downloads through relative links or a secure same-origin CORS proxy
   async downloadPdf(url: string, filename: string): Promise<void> {
     if (!url) return;
-    const resolvedUrl = await db.resolvePdfUrl(url);
+    let resolvedUrl = await db.resolvePdfUrl(url);
     if (!resolvedUrl) return;
 
-    // 1. If it's a blob/data URL, download directly via simulation fallback link click
+    // 1. Convert data: Base64 data URLs to local blob: URLs on-the-fly
+    // This fully bypasses mobile browser security limits that block downloading direct data: URIs!
+    if (resolvedUrl.startsWith('data:')) {
+      try {
+        const parts = resolvedUrl.split(',');
+        const mime = parts[0].match(/:(.*?);/)?.[1] || 'application/pdf';
+        const bstr = atob(parts[1]);
+        let n = bstr.length;
+        const u8arr = new Uint8Array(n);
+        while (n--) {
+          u8arr[n] = bstr.charCodeAt(n);
+        }
+        const blob = new Blob([u8arr], { type: mime });
+        resolvedUrl = URL.createObjectURL(blob);
+      } catch (err) {
+        console.warn('Failed to convert data URL to Blob URL, will attempt direct navigation fallback:', err);
+      }
+    }
+
+    // 2. If it's already a blob/data URL, trigger the download via simulated click
     if (resolvedUrl.startsWith('blob:') || resolvedUrl.startsWith('data:')) {
       const link = document.createElement('a');
       link.href = resolvedUrl;
@@ -737,7 +756,9 @@ export const db = {
       return;
     }
 
-    // 2. Resolve if the URL belongs to our local API (either starts with or contains /api/pdf/)
+    // 3. For relative local paths or external proxy paths, fetch and validate first
+    // This ensures that if the server returns 404, we catch it instead of saving corrupted HTML
+    let downloadUrl = resolvedUrl;
     let isLocalPdf = false;
     let localPath = '';
     
@@ -754,31 +775,43 @@ export const db = {
 
     if (isLocalPdf) {
       const separator = localPath.includes('?') ? '&' : '?';
-      const downloadUrl = `${localPath}${separator}download=true`;
-      const link = document.createElement('a');
-      link.href = downloadUrl;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      return;
+      downloadUrl = `${localPath}${separator}download=true`;
+    } else {
+      downloadUrl = `/api/download?url=${encodeURIComponent(resolvedUrl)}&filename=${encodeURIComponent(filename)}`;
     }
 
-    // 3. For any other external / Supabase storage public URLs, proxy via /api/download to bypass client-side CORS completely!
     try {
-      const proxyUrl = `/api/download?url=${encodeURIComponent(resolvedUrl)}&filename=${encodeURIComponent(filename)}`;
+      const response = await fetch(downloadUrl);
+      if (!response.ok) {
+        throw new Error(`Server returned HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      // Check if server returned HTML (Vite wildcard fallback page e.g. index.html) instead of PDF
+      const contentType = response.headers.get('content-type') || '';
+      if (contentType.toLowerCase().includes('text/html')) {
+        throw new Error('Server returned HTML index fallback instead of the PDF document.');
+      }
+
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+
       const link = document.createElement('a');
-      link.href = proxyUrl;
+      link.href = blobUrl;
       link.download = filename;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+
+      // Revoke the object URL after a short duration to free browser memory
+      setTimeout(() => {
+        URL.revokeObjectURL(blobUrl);
+      }, 8000);
     } catch (err) {
-      console.error('Download proxy execution failed, trying direct navigation sandbox opening fallback:', err);
+      console.error('Unified download pipeline failed:', err);
+      // Fallback: Try a simple direct window open/download if fetch was blocked by CORS
       const link = document.createElement('a');
       link.href = resolvedUrl;
       link.target = '_blank';
-      link.rel = 'noopener,noreferrer';
       link.download = filename;
       document.body.appendChild(link);
       link.click();
