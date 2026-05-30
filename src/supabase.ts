@@ -718,8 +718,9 @@ export const db = {
       return;
     }
 
-    // 3. For relative local paths or external proxy paths, fetch and validate first
-    // This ensures that if the server returns 404, we catch it instead of saving corrupted HTML
+    // 3. For relative local paths or external proxy paths:
+    // Let the browser trigger native download behavior securely and instantly!
+    // This requires zero client-side fetch, avoids CORS limits, and handles PDF retrieval seamlessly on iOS and Android.
     let downloadUrl = resolvedUrl;
     let isLocalPdf = false;
     let localPath = '';
@@ -742,55 +743,9 @@ export const db = {
       downloadUrl = `${window.location.origin}/api/download?url=${encodeURIComponent(resolvedUrl)}&filename=${encodeURIComponent(filename)}`;
     }
 
-    try {
-      const response = await fetch(downloadUrl);
-      if (!response.ok) {
-        throw new Error(`Server returned HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      // Check if server returned HTML (Vite wildcard fallback page e.g. index.html) instead of PDF
-      const contentType = response.headers.get('content-type') || '';
-      if (contentType.toLowerCase().includes('text/html')) {
-        throw new Error('Server returned HTML index fallback instead of the PDF document.');
-      }
-
-      const blob = await response.blob();
-      const blobUrl = URL.createObjectURL(blob);
-
-      const link = document.createElement('a');
-      link.href = blobUrl;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-
-      // Revoke the object URL after a short duration to free browser memory
-      setTimeout(() => {
-        URL.revokeObjectURL(blobUrl);
-      }, 8000);
-    } catch (err: any) {
-      console.error('Unified download pipeline failed:', err);
-      const errMsg = err?.message || '';
-      
-      // If the file was not found or returned HTML fallback,
-      // fail cleanly so the parent component can invoke the native window.print() layout fallback!
-      if (
-        resolvedUrl.startsWith('indexeddb://') ||
-        errMsg.includes('HTML index fallback') ||
-        errMsg.includes('HTTP 404')
-      ) {
-        throw err;
-      }
-
-      // Fallback only for possible network/CORS or other browser level blocked fetched URLs
-      const link = document.createElement('a');
-      link.href = resolvedUrl;
-      link.target = '_blank';
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    }
+    // Redirecting window.location.href directly to the download endpoint triggers native browser download 
+    // dialogs beautifully without loading a blank page or losing current component state!
+    window.location.href = downloadUrl;
   },
 
   // Handle PDF upload using a tiered strategies approach (Supabase bucket -> Express Backend APIs -> Raw Base64 fallback)
