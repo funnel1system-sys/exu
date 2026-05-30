@@ -1,0 +1,6 @@
+{
+  "name": "DC Pass Portal",
+  "description": "Admin portal to upload, manage, and verify DC Mineral Passes with secure verification URLs and auto-generated QR codes.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
