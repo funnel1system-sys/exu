@@ -266,6 +266,34 @@ app.get("/api/download", async (req, res) => {
       return res.status(400).send("Missing URL parameter");
     }
 
+    // Direct check: if it is a local-only database URL, reject cleanly
+    if (fileUrl.startsWith("indexeddb://")) {
+      return res.status(400).send("IndexedDB assets are stored browser-side and cannot be accessed inside backend containers.");
+    }
+
+    // Resolve local PDF files directly from disk to bypass container loopback network blocks
+    const apiPdfPattern = "/api/pdf/";
+    let localFilename = "";
+    if (fileUrl.startsWith(apiPdfPattern)) {
+      localFilename = fileUrl.substring(apiPdfPattern.length);
+    } else {
+      const idx = fileUrl.indexOf(apiPdfPattern);
+      if (idx !== -1) {
+        localFilename = fileUrl.substring(idx + apiPdfPattern.length);
+      }
+    }
+
+    if (localFilename) {
+      const decodedFilename = decodeURIComponent(localFilename).split("?")[0];
+      const filePath = path.join(PDF_DIR, decodedFilename);
+      if (fs.existsSync(filePath)) {
+        res.setHeader("Content-Type", "application/pdf");
+        res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+        res.setHeader("Access-Control-Allow-Origin", "*");
+        return res.sendFile(filePath);
+      }
+    }
+
     // Resolve URL (e.g. if relative, make it absolute)
     let targetUrl = fileUrl;
     if (fileUrl.startsWith("/")) {

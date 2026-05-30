@@ -775,9 +775,9 @@ export const db = {
 
     if (isLocalPdf) {
       const separator = localPath.includes('?') ? '&' : '?';
-      downloadUrl = `${localPath}${separator}download=true`;
+      downloadUrl = `${window.location.origin}${localPath}${separator}download=true`;
     } else {
-      downloadUrl = `/api/download?url=${encodeURIComponent(resolvedUrl)}&filename=${encodeURIComponent(filename)}`;
+      downloadUrl = `${window.location.origin}/api/download?url=${encodeURIComponent(resolvedUrl)}&filename=${encodeURIComponent(filename)}`;
     }
 
     try {
@@ -810,7 +810,7 @@ export const db = {
       console.error('Unified download pipeline failed:', err);
       const errMsg = err?.message || '';
       
-      // If the file was not found, resolved to dummy offline database protocol, or returned HTML fallback,
+      // If the file was not found or returned HTML fallback,
       // fail cleanly so the parent component can invoke the native window.print() layout fallback!
       if (
         resolvedUrl.startsWith('indexeddb://') ||
@@ -831,7 +831,7 @@ export const db = {
     }
   },
 
-  // Handle PDF upload using a tiered strategies approach (Supabase bucket -> Express Backend APIs -> IndexedDB -> Raw Base64 fallback)
+  // Handle PDF upload using a tiered strategies approach (Supabase bucket -> Express Backend APIs -> Raw Base64 fallback)
   // This fully matches production expectations where files are served publicly to client scanning terminals
   async uploadPassPDF(file: File, dcNumber?: string): Promise<string> {
     const cleanDc = dcNumber ? dcNumber.trim().toUpperCase() : `${Math.random().toString(36).substring(2, 11)}`;
@@ -863,56 +863,63 @@ export const db = {
       }
     }
 
-    // Tier 2: Dedicated Server Filesystem upload (works on local Express + container runs)
+    // Convert file to Base64 once to use for both server upload and transferable data-url fallback
+    let base64Data = '';
     try {
-      const base64Data = await new Promise<string>((resolve, reject) => {
+      base64Data = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
-        reader.onload = () => resolve(reader.result as string);
+        reader.onload = () => {
+          if (typeof reader.result === 'string') resolve(reader.result);
+          else reject(new Error('File conversion outcome was non-string'));
+        };
         reader.onerror = (e) => reject(e);
         reader.readAsDataURL(file);
       });
-
-      const resp = await fetch('/api/upload', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: file.name,
-          base64: base64Data
-        })
-      });
-
-      if (resp.ok) {
-        const result = await resp.json();
-        if (result.url) {
-          return result.url; // e.g. /api/pdf/uniqid_filename_invoice.pdf
-        }
-      }
     } catch (err) {
-      console.warn('[DC Pass Portal] Express API upload failed, falling back to Local IndexedDB:', err);
+      console.error('[DC Pass Portal] Failed to read uploaded file to Base64:', err);
     }
 
-    // Tier 3: Local Offline IndexedDB storage (prevents exceeding 5MB LocalStorage quota)
+    // Tier 2: Dedicated Server Filesystem upload (works on local Express + container runs)
+    if (base64Data) {
+      try {
+        const resp = await fetch('/api/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: file.name,
+            base64: base64Data
+          })
+        });
+
+        if (resp.ok) {
+          const result = await resp.json();
+          if (result.url) {
+            return result.url; // e.g. /api/pdf/uniqid_filename_invoice.pdf
+          }
+        } else {
+          console.warn(`[DC Pass Portal] Server PDF upload endpoint returned status ${resp.status}`);
+        }
+      } catch (err) {
+        console.warn('[DC Pass Portal] Express API upload failed:', err);
+      }
+    }
+
+    // Tier 3: Local IndexedDB for local cache offline backup
     const storeKey = `pdf_${cleanDc}_${Date.now()}`;
     try {
       await savePDFToIndexedDB(storeKey, file);
-      return `indexeddb://${storeKey}`;
+      console.log('[DC Pass Portal] Local offline IndexedDB cache write completed.');
     } catch (err) {
-      console.warn('[DC Pass Portal] IndexedDB storage fallback write failed, adopting raw Base64 data string:', err);
+      console.warn('[DC Pass Portal] IndexedDB fallback write bypassed:', err);
     }
 
-    // Tier 4: Base64 string fallback
-    return new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        if (typeof reader.result === 'string') {
-          resolve(reader.result);
-        } else {
-          reject(new Error("File conversion returned non-string format"));
-        }
-      };
-      reader.onerror = (e) => reject(e);
-      reader.readAsDataURL(file);
-    });
+    // Return the transferable, self-contained Base64 data-url so any scanning device
+    // has full capacity to open and download the PDF beautifully on the spot!
+    if (base64Data) {
+      return base64Data;
+    }
+
+    return '';
   }
 };
 
