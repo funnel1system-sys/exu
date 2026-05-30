@@ -2,6 +2,7 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import { createServer as createViteServer } from "vite";
+import { put } from "@vercel/blob";
 
 const app = express();
 const PORT = 3000;
@@ -203,7 +204,7 @@ app.delete("/api/passes/:id", (req, res) => {
 });
 
 // PDF Upload Endpoint (handles binary encoded base64 files cleanly)
-app.post("/api/upload", (req, res) => {
+app.post("/api/upload", async (req, res) => {
   try {
     const { name, base64 } = req.body;
     if (!name || !base64) {
@@ -222,8 +223,29 @@ app.post("/api/upload", (req, res) => {
     const uniqId = `${Math.random().toString(36).substring(2, 11)}_${Date.now()}`;
     const cleanName = name.replace(/[^a-zA-Z0-9.\-_]/g, "_");
     const filename = `${uniqId}_${cleanName}`;
-    const filePath = path.join(PDF_DIR, filename);
 
+    // Tiered Check: Try Vercel Blob if token is available
+    const token = process.env.BLOB_READ_WRITE_TOKEN || process.env.VERCEL_BLOB_READ_WRITE_TOKEN;
+    if (token) {
+      try {
+        console.log(`[Vercel Blob] Uploading ${filename} directly...`);
+        const vercelBlob = await put(filename, buffer, {
+          access: "public",
+          token: token,
+          contentType: "application/pdf"
+        });
+        if (vercelBlob && vercelBlob.url) {
+          console.log(`[Vercel Blob] Upload successful: ${vercelBlob.url}`);
+          return res.json({ url: vercelBlob.url });
+        }
+      } catch (vercelErr: any) {
+        console.error("[Vercel Blob] Failed to upload to vercel storage. Falling back to disk storage:", vercelErr);
+      }
+    } else {
+      console.log("[Vercel Blob] Vercel tokens not configured. Defaulting to disk fallback.");
+    }
+
+    const filePath = path.join(PDF_DIR, filename);
     fs.writeFileSync(filePath, buffer);
 
     // Return the absolute public URL endpoint so any external scanner device can access it
