@@ -102,6 +102,109 @@ function savePasses(passes: any[]): void {
 // Ensure database is initialized with seed data at startup
 loadPasses();
 
+const USERS_FILE = path.join(DATA_DIR, "users.json");
+
+// Helper to load current users from data file
+function loadUsers(): any[] {
+  try {
+    if (fs.existsSync(USERS_FILE)) {
+      const data = fs.readFileSync(USERS_FILE, "utf-8");
+      return JSON.parse(data);
+    }
+  } catch (err) {
+    console.error("Error reading users store:", err);
+  }
+  // Initialize with the standard default templates so admins can connect seamlessly out-of-the-box
+  const defaultUsers = [
+    { id: "admin-1", email: "admin@faruk.com", password: "faruq12345", role: "admin" },
+    { id: "admin-2", email: "admin@dcpass.gov.in", password: "admin123", role: "admin" }
+  ];
+  try {
+    fs.writeFileSync(USERS_FILE, JSON.stringify(defaultUsers, null, 2), "utf-8");
+  } catch (e) {}
+  return defaultUsers;
+}
+
+// Helper to save users to data file
+function saveUsers(users: any[]): void {
+  try {
+    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), "utf-8");
+  } catch (err) {
+    console.error("Error saving users store:", err);
+  }
+}
+
+// Ensure users catalog is active
+loadUsers();
+
+// --- API Endpoints for Central Logins and Auth Sync ---
+app.post("/api/auth/login", (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ error: "Email and password are required" });
+    }
+
+    const users = loadUsers();
+    const cleanEmail = email.trim().toLowerCase();
+
+    // Scan for user
+    const user = users.find(u => u.email.toLowerCase() === cleanEmail);
+    if (!user) {
+      // In simulated mock mode, let's gracefully auto-register any newly introduced admin profile on-the-spot
+      // so login works instantly across all devices without having a separate Signup screen button
+      const newUser = {
+        id: "simulated-" + Math.random().toString(36).substring(2, 11),
+        email: cleanEmail,
+        password: password,
+        role: "admin"
+      };
+      users.push(newUser);
+      saveUsers(users);
+      return res.json({ success: true, user: { id: newUser.id, email: newUser.email, role: newUser.role } });
+    }
+
+    if (user.password !== password) {
+      return res.status(401).json({ error: "Invalid password for this administrator account." });
+    }
+
+    return res.json({ success: true, user: { id: user.id, email: user.email, role: user.role } });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/auth/signup", (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ error: "Email and password are required" });
+    }
+
+    const users = loadUsers();
+    const cleanEmail = email.trim().toLowerCase();
+
+    const exists = users.some(u => u.email.toLowerCase() === cleanEmail);
+    if (exists) {
+      return res.status(400).json({ error: "An administrator with this email is already registered." });
+    }
+
+    const newUser = {
+      id: "simulated-" + Math.random().toString(36).substring(2, 11),
+      email: cleanEmail,
+      password: password,
+      role: "admin"
+    };
+
+    users.push(newUser);
+    saveUsers(users);
+
+    res.status(201).json({ success: true, user: { id: newUser.id, email: newUser.email, role: newUser.role } });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // API Endpoints for Passes
 app.get("/api/passes", (req, res) => {
   try {
@@ -351,6 +454,32 @@ async function startServer() {
       appType: "spa",
     });
     app.use(vite.middlewares);
+
+    // Dynamic router middleware to fallback to Vite's index.html for SPA page URLs
+    app.get("*", async (req, res, next) => {
+      const url = req.originalUrl;
+      // Skip static assets, APIs, and dev bundles
+      if (
+        url.startsWith("/api") ||
+        url.startsWith("/src") ||
+        url.startsWith("/@") ||
+        url.startsWith("/node_modules") ||
+        url.includes(".")
+      ) {
+        return next();
+      }
+      try {
+        const templatePath = path.join(process.cwd(), "index.html");
+        if (fs.existsSync(templatePath)) {
+          const template = fs.readFileSync(templatePath, "utf-8");
+          const html = await vite.transformIndexHtml(url, template);
+          return res.status(200).set({ "Content-Type": "text/html" }).end(html);
+        }
+        next();
+      } catch (err) {
+        next(err);
+      }
+    });
   } else {
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));

@@ -473,46 +473,8 @@ export const db = {
       }
     }
 
-    // Dynamic generation fallback: if a pass was searched by barcode but not found, 
-    // dynamically generate it to make the scan succeed beautifully without block errors!
-    const fallbackPass = generateRealisticPass(cleanDc);
-    
-    // Save the dynamic pass into our db so it is persisted and searchable (e.g., in history lists)
-    if (!isMock && realSupabase) {
-      try {
-        await realSupabase
-           .from('dc_passes')
-          .insert([prepareSupabasePayload(fallbackPass)]);
-      } catch (err) {
-        console.warn('Error saving fallback pass to Supabase:', err);
-      }
-    } else {
-      try {
-        const resp = await fetch('/api/passes', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(fallbackPass)
-        });
-        if (resp.ok) {
-          return await resp.json();
-        }
-      } catch (err) {
-        console.warn('Error saving fallback pass to backend server:', err);
-      }
-
-      try {
-        const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
-        const data: DCPass[] = raw ? JSON.parse(raw) : [];
-        if (!data.some(p => p.dc_number.toUpperCase() === cleanDc)) {
-          data.push(fallbackPass);
-          localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(data));
-        }
-      } catch (err) {
-        console.warn('Error saving fallback pass to LocalStorage:', err);
-      }
-    }
-
-    return fallbackPass;
+    // Return null if pass is not found, letting the portal display 'Pass Not Found'
+    return null;
   },
 
   // Create a new pass
@@ -943,14 +905,33 @@ export const authService = {
       }
       return { success: true, user: data.user };
     } else {
-      // Mock auth accepts admin/admin@faruk.com with faruq12345 or any other mock credentials
+      try {
+        const resp = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: resolvedEmail, password })
+        });
+        if (resp.ok) {
+          const body = await resp.json();
+          if (body.success && body.user) {
+            localStorage.setItem(AUTH_KEY, JSON.stringify({ ...body.user, loggedIn: true }));
+            return { success: true, user: body.user };
+          }
+        } else {
+          const errBody = await resp.json().catch(() => ({}));
+          return { success: false, error: errBody.error || 'Invalid administrator password.' };
+        }
+      } catch (err: any) {
+        console.error('[DC Pass Portal] Express login endpoint connection failed:', err);
+      }
+
+      // Fallback: Default templates if backend is strictly unreachable
       const cleanEmail = resolvedEmail.toLowerCase();
       if ((cleanEmail === 'admin@faruk.com' && password === 'faruq12345') || (cleanEmail === 'admin@dcpass.gov.in' && password === 'admin123')) {
         const mockUser = { id: 'admin-simulated-id', email: resolvedEmail, role: 'admin' };
         localStorage.setItem(AUTH_KEY, JSON.stringify({ ...mockUser, loggedIn: true }));
         return { success: true, user: mockUser };
       } else {
-        // Create an instant simulated admin session for any other custom profile credentials in mock mode
         const mockUser = { id: `simulated-${Date.now()}`, email: resolvedEmail, role: 'admin' };
         localStorage.setItem(AUTH_KEY, JSON.stringify({ ...mockUser, loggedIn: true }));
         return { success: true, user: mockUser };
@@ -980,6 +961,26 @@ export const authService = {
         message: 'Account registered! Since email confirmation is enabled by default in Supabase, please check your email inbox to confirm your account or disable email verification in your Supabase Auth dashboard.' 
       };
     } else {
+      try {
+        const resp = await fetch('/api/auth/signup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: email.trim(), password })
+        });
+        if (resp.ok) {
+          const body = await resp.json();
+          if (body.success && body.user) {
+            localStorage.setItem(AUTH_KEY, JSON.stringify({ ...body.user, loggedIn: true }));
+            return { success: true, user: body.user, message: 'Simulated admin account setup completed!' };
+          }
+        } else {
+          const errBody = await resp.json().catch(() => ({}));
+          return { success: false, error: errBody.error || 'Failed to complete registration on backend.' };
+        }
+      } catch (err: any) {
+        console.error('[DC Pass Portal] Express signup connection failed:', err);
+      }
+
       const cleanedEmail = email.trim();
       const mockUser = { id: `admin-simulated-${Date.now()}`, email: cleanedEmail, role: 'admin' };
       localStorage.setItem(AUTH_KEY, JSON.stringify({ ...mockUser, loggedIn: true }));
@@ -1010,7 +1011,7 @@ export const authService = {
       if (rawUser) {
         const parsed = JSON.parse(rawUser);
         if (parsed.loggedIn) {
-          return { id: 'admin-simulated-id', email: parsed.email };
+          return { id: parsed.id || 'admin-simulated-id', email: parsed.email };
         }
       }
       return null;
