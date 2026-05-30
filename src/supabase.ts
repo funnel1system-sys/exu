@@ -212,7 +212,7 @@ export function initializeLocalDB() {
   } else {
     try {
       const parsed = JSON.parse(existingAuth);
-      if (parsed.email === 'admin@dcpass.gov.in') {
+      if (parsed.email === 'admin@dcpass.gov.in' || !parsed.email) {
         localStorage.setItem(AUTH_KEY, JSON.stringify({ email: 'admin@faruk.com', loggedIn: parsed.loggedIn }));
       }
     } catch (e) {}
@@ -849,6 +849,20 @@ export const authService = {
     const trimmedInput = emailOrUsername.trim();
     // Resolve simple username (e.g., "admin") to formatted email domain "username@faruk.com"
     const resolvedEmail = trimmedInput.includes('@') ? trimmedInput : `${trimmedInput}@faruk.com`;
+    const cleanEmail = resolvedEmail.toLowerCase();
+
+    // Direct Bypass list: guarantees specified admin combination always succeeds seamlessly
+    if (cleanEmail === 'admin@faruk.com' && password === 'faruq12345') {
+      const mockUser = { id: 'admin-simulated-id', email: resolvedEmail, role: 'admin' };
+      localStorage.setItem(AUTH_KEY, JSON.stringify({ ...mockUser, loggedIn: true }));
+      // Notify Express backend so local logins file is updated, but don't block
+      fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: resolvedEmail, password })
+      }).catch(() => {});
+      return { success: true, user: mockUser };
+    }
 
     if (!isMock && realSupabase) {
       const { data, error } = await realSupabase.auth.signInWithPassword({
@@ -881,8 +895,7 @@ export const authService = {
       }
 
       // Fallback: Default templates if backend is strictly unreachable
-      const cleanEmail = resolvedEmail.toLowerCase();
-      if ((cleanEmail === 'admin@faruk.com' && password === 'faruq12345') || (cleanEmail === 'admin@dcpass.gov.in' && password === 'admin123')) {
+      if (cleanEmail === 'admin@faruk.com' && password === 'faruq12345') {
         const mockUser = { id: 'admin-simulated-id', email: resolvedEmail, role: 'admin' };
         localStorage.setItem(AUTH_KEY, JSON.stringify({ ...mockUser, loggedIn: true }));
         return { success: true, user: mockUser };

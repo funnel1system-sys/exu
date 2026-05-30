@@ -116,13 +116,16 @@ function loadUsers(): any[] {
     console.error("Error reading users store:", err);
   }
 
+  // Remove any legacy gov.in email login if present
+  const docGovInRemoved = users.filter(u => u.email.toLowerCase() !== "admin@dcpass.gov.in");
+  let modified = docGovInRemoved.length !== users.length;
+  users = docGovInRemoved;
+
   // Guarantee standard default credentials with correct profiles and passwords
   const defaultAdmins = [
-    { id: "admin-1", email: "admin@faruk.com", password: "faruq12345", role: "admin" },
-    { id: "admin-2", email: "admin@dcpass.gov.in", password: "admin123", role: "admin" }
+    { id: "admin-1", email: "admin@faruk.com", password: "faruq12345", role: "admin" }
   ];
 
-  let modified = false;
   for (const def of defaultAdmins) {
     const existingIndex = users.findIndex(u => u.email.toLowerCase() === def.email.toLowerCase());
     if (existingIndex === -1) {
