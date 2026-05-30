@@ -106,23 +106,44 @@ const USERS_FILE = path.join(DATA_DIR, "users.json");
 
 // Helper to load current users from data file
 function loadUsers(): any[] {
+  let users: any[] = [];
   try {
     if (fs.existsSync(USERS_FILE)) {
       const data = fs.readFileSync(USERS_FILE, "utf-8");
-      return JSON.parse(data);
+      users = JSON.parse(data);
     }
   } catch (err) {
     console.error("Error reading users store:", err);
   }
-  // Initialize with the standard default templates so admins can connect seamlessly out-of-the-box
-  const defaultUsers = [
+
+  // Guarantee standard default credentials with correct profiles and passwords
+  const defaultAdmins = [
     { id: "admin-1", email: "admin@faruk.com", password: "faruq12345", role: "admin" },
     { id: "admin-2", email: "admin@dcpass.gov.in", password: "admin123", role: "admin" }
   ];
-  try {
-    fs.writeFileSync(USERS_FILE, JSON.stringify(defaultUsers, null, 2), "utf-8");
-  } catch (e) {}
-  return defaultUsers;
+
+  let modified = false;
+  for (const def of defaultAdmins) {
+    const existingIndex = users.findIndex(u => u.email.toLowerCase() === def.email.toLowerCase());
+    if (existingIndex === -1) {
+      users.push(def);
+      modified = true;
+    } else {
+      // Force update password if different
+      if (users[existingIndex].password !== def.password || users[existingIndex].role !== def.role) {
+        users[existingIndex].password = def.password;
+        users[existingIndex].role = def.role;
+        modified = true;
+      }
+    }
+  }
+
+  if (modified || !fs.existsSync(USERS_FILE)) {
+    try {
+      fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), "utf-8");
+    } catch (e) {}
+  }
+  return users;
 }
 
 // Helper to save users to data file
