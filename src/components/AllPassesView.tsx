@@ -214,7 +214,7 @@ export default function AllPassesView({ onSelectPass, onNavigate }: AllPassesVie
 
   // File download helper
   const handleDownloadInvoice = async (pass: DCPass) => {
-    if (!pass.pdf_url) {
+    if (!pass.pdf_base64 && !pass.pdf_url) {
       // If no PDF URL at all, navigate and trigger printing of the pass layout
       onSelectPass(pass.dc_number);
       setTimeout(() => {
@@ -224,7 +224,7 @@ export default function AllPassesView({ onSelectPass, onNavigate }: AllPassesVie
     }
 
     try {
-      await db.downloadPdf(pass.pdf_url, `DC-PASS-${pass.dc_number}.pdf`);
+      await db.downloadPdf(pass.pdf_base64 || pass.pdf_url!, `DC-PASS-${pass.dc_number}.pdf`);
     } catch (err) {
       console.error("All download routes failed, falling back to print preview:", err);
       onSelectPass(pass.dc_number);

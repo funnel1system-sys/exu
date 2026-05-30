@@ -399,6 +399,24 @@ app.get("/api/pdf/:filename", (req, res) => {
       }
       res.sendFile(filePath);
     } else {
+      // Ephemeral disk recovery: check if we can reconstruct file on-the-fly from the persistent passes.json database
+      const passesList = loadPasses();
+      const match = passesList.find((p: any) => p.pdf_url && p.pdf_url.toLowerCase().includes(filename.toLowerCase()));
+      
+      if (match && match.pdf_base64) {
+        let cleanBase64 = match.pdf_base64;
+        if (cleanBase64.includes(",")) {
+          cleanBase64 = cleanBase64.split(",")[1];
+        }
+        res.setHeader("Content-Type", "application/pdf");
+        if (req.query.download === "true") {
+          res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+        } else {
+          res.setHeader("Content-Disposition", `inline; filename="${filename}"`);
+        }
+        return res.send(Buffer.from(cleanBase64, "base64"));
+      }
+
       res.status(404).send("Document not found");
     }
   } catch (err: any) {
@@ -440,6 +458,20 @@ app.get("/api/download", async (req, res) => {
         res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
         res.setHeader("Access-Control-Allow-Origin", "*");
         return res.sendFile(filePath);
+      } else {
+        // Ephemeral disk recovery backup
+        const passesList = loadPasses();
+        const match = passesList.find((p: any) => p.pdf_url && p.pdf_url.toLowerCase().includes(decodedFilename.toLowerCase()));
+        if (match && match.pdf_base64) {
+          let cleanBase64 = match.pdf_base64;
+          if (cleanBase64.includes(",")) {
+            cleanBase64 = cleanBase64.split(",")[1];
+          }
+          res.setHeader("Content-Type", "application/pdf");
+          res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+          res.setHeader("Access-Control-Allow-Origin", "*");
+          return res.send(Buffer.from(cleanBase64, "base64"));
+        }
       }
     }
 

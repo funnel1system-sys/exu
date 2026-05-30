@@ -27,6 +27,7 @@ export interface DCPass {
   purchaser_name?: string;
   distance?: string;
   pdf_url?: string;
+  pdf_base64?: string;
   created_at: string;
   status: 'active' | 'pending' | 'expired';
 }

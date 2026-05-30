@@ -88,14 +88,14 @@ export default function PublicPassView({ dcNumber, onBackToPortal, isAdmin }: Pu
   const handleDownloadPDF = async () => {
     if (!pass) return;
 
-    if (!pass.pdf_url) {
+    if (!pass.pdf_base64 && !pass.pdf_url) {
       // Trigger native browser print which prints the pass layout beautifully!
       window.print();
       return;
     }
 
     try {
-      await db.downloadPdf(pass.pdf_url, `DC-PASS-${pass.dc_number}.pdf`);
+      await db.downloadPdf(pass.pdf_base64 || pass.pdf_url!, `DC-PASS-${pass.dc_number}.pdf`);
     } catch (err) {
       console.error("All download routes failed, falling back to print page:", err);
       window.print();

@@ -139,7 +139,18 @@ export default function CreatePassView({ onNavigate, onSelectPass }: CreatePassV
 
     try {
       let uploadedPdfUrl = '';
+      let pdfBase64 = '';
       if (pdfFile) {
+        // Read file to base64 string
+        pdfBase64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            if (typeof reader.result === 'string') resolve(reader.result);
+            else reject(new Error('Conversion to base64 was empty'));
+          };
+          reader.onerror = (e) => reject(e);
+          reader.readAsDataURL(pdfFile);
+        });
         uploadedPdfUrl = await db.uploadPassPDF(pdfFile, dcNumber.trim().toUpperCase());
       }
 
@@ -166,7 +177,8 @@ export default function CreatePassView({ onNavigate, onSelectPass }: CreatePassV
         checkpost: checkpost.trim(),
         purchaser_name: purchaserName.trim(),
         distance: distance.trim(),
-        pdf_url: uploadedPdfUrl
+        pdf_url: uploadedPdfUrl,
+        pdf_base64: pdfBase64
       };
 
       const created = await db.createPass(newPassData);
