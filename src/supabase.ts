@@ -200,9 +200,25 @@ export async function getPDFFromIndexedDB(key: string): Promise<Blob | null> {
   }
 }
 
+export function safeSetLocalStorage(key: string, data: any[]) {
+  try {
+    const cleanData = data.map(item => {
+      if (item && typeof item === 'object') {
+        const copy = { ...item };
+        delete copy.pdf_base64;
+        return copy;
+      }
+      return item;
+    });
+    localStorage.setItem(key, JSON.stringify(cleanData));
+  } catch (err) {
+    console.warn('[DC Pass Portal] LocalStorage setItem failed or quota exceeded:', err);
+  }
+}
+
 export function initializeLocalDB() {
   if (!localStorage.getItem(LOCAL_STORAGE_KEY)) {
-    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(DEFAULT_PASSES));
+    safeSetLocalStorage(LOCAL_STORAGE_KEY, DEFAULT_PASSES);
   }
   
   // Set default demo account or migration from older admin
@@ -286,6 +302,9 @@ export function parseAndFormatToISO(dateStr: string): string {
 export function prepareSupabasePayload(fields: any): any {
   if (!fields) return fields;
   const result = { ...fields };
+  // Remove fields that do not exist on the Supabase schema to avoid PostgreSQL Schema Cache errors
+  delete result.pdf_base64;
+
   if (result.journey_start !== undefined) {
     result.journey_start = parseAndFormatToISO(result.journey_start);
   }
@@ -388,7 +407,7 @@ export const db = {
     if (!isMock && realSupabase) {
       const { data, error } = await realSupabase
         .from('dc_passes')
-        .select('*')
+        .select('id, dc_number, vehicle_number, driver_name, driver_mobile, license_number, mineral_name, net_weight, concession_holder, source_place, destination, journey_start, journey_end, route_name, transporter_name, buyer_mobile, pan_gstin, gps_details, royalty_issued, duration, checkpost, purchaser_name, distance, pdf_url, created_at, status')
         .order('created_at', { ascending: false });
       
       if (error) {
@@ -401,7 +420,7 @@ export const db = {
         const resp = await fetch('/api/passes');
         if (resp.ok) {
           const list = await resp.json();
-          localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(list));
+          safeSetLocalStorage(LOCAL_STORAGE_KEY, list);
           return list;
         }
       } catch (err) {
@@ -431,7 +450,7 @@ export const db = {
     if (!isMock && realSupabase) {
       const { data, error } = await realSupabase
         .from('dc_passes')
-        .select('*')
+        .select('id, dc_number, vehicle_number, driver_name, driver_mobile, license_number, mineral_name, net_weight, concession_holder, source_place, destination, journey_start, journey_end, route_name, transporter_name, buyer_mobile, pan_gstin, gps_details, royalty_issued, duration, checkpost, purchaser_name, distance, pdf_url, created_at, status')
         .ilike('dc_number', cleanDc)
         .maybeSingle();
 
@@ -452,7 +471,7 @@ export const db = {
             } else {
               list.unshift(match);
             }
-            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(list));
+            safeSetLocalStorage(LOCAL_STORAGE_KEY, list);
           } catch (e) {}
           return match;
         }
@@ -530,7 +549,7 @@ export const db = {
           ...passData,
           status: computedStatus
         })])
-        .select()
+        .select('id, dc_number, vehicle_number, driver_name, driver_mobile, license_number, mineral_name, net_weight, concession_holder, source_place, destination, journey_start, journey_end, route_name, transporter_name, buyer_mobile, pan_gstin, gps_details, royalty_issued, duration, checkpost, purchaser_name, distance, pdf_url, created_at, status')
         .single();
  
       if (error) {
@@ -554,7 +573,7 @@ export const db = {
             const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
             const list: DCPass[] = raw ? JSON.parse(raw) : [];
             list.unshift(createdPass);
-            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(list));
+            safeSetLocalStorage(LOCAL_STORAGE_KEY, list);
           } catch (e) {}
           return createdPass;
         }
@@ -572,7 +591,7 @@ export const db = {
       };
       
       data.unshift(newPass);
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(data));
+      safeSetLocalStorage(LOCAL_STORAGE_KEY, data);
       return newPass;
     }
   },
@@ -584,7 +603,7 @@ export const db = {
         .from('dc_passes')
         .update(prepareSupabasePayload(updatedFields))
         .eq('id', id)
-        .select()
+        .select('id, dc_number, vehicle_number, driver_name, driver_mobile, license_number, mineral_name, net_weight, concession_holder, source_place, destination, journey_start, journey_end, route_name, transporter_name, buyer_mobile, pan_gstin, gps_details, royalty_issued, duration, checkpost, purchaser_name, distance, pdf_url, created_at, status')
         .single();
 
       if (error) {
@@ -604,7 +623,7 @@ export const db = {
             const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
             let list: DCPass[] = raw ? JSON.parse(raw) : [];
             list = list.map(p => p.id === id ? updatedPass : p);
-            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(list));
+            safeSetLocalStorage(LOCAL_STORAGE_KEY, list);
           } catch (e) {}
           return updatedPass;
         }
@@ -624,7 +643,7 @@ export const db = {
         return pass;
       });
       
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(data));
+      safeSetLocalStorage(LOCAL_STORAGE_KEY, data);
       if (!updatedPass) throw new Error('Pass not found');
       return updatedPass;
     }
@@ -653,7 +672,7 @@ export const db = {
             const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
             const list: DCPass[] = raw ? JSON.parse(raw) : [];
             const filtered = list.filter(p => p.id !== id);
-            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(filtered));
+            safeSetLocalStorage(LOCAL_STORAGE_KEY, filtered);
           } catch (e) {}
           return true;
         }
@@ -664,7 +683,7 @@ export const db = {
       const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
       const data: DCPass[] = raw ? JSON.parse(raw) : [];
       const filtered = data.filter(p => p.id !== id);
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(filtered));
+      safeSetLocalStorage(LOCAL_STORAGE_KEY, filtered);
       return true;
     }
   },
