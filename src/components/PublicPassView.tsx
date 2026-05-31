@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { DCPass } from '../types';
 import { db } from '../supabase';
-import { generateTransitPassPDFBlob } from '../utils/pdfGenerator';
 import QRCode from 'qrcode';
 // @ts-ignore
 import logoImg from '../assets/images/cgm_gujarat_logo_1779943769415.png';
@@ -89,33 +88,18 @@ export default function PublicPassView({ dcNumber, onBackToPortal, isAdmin }: Pu
   const handleDownloadPDF = async () => {
     if (!pass) return;
 
-    // Check if there is an authentic admin upload in either pdf_base64 or pdf_url (filtering out placeholder dummy.pdf URLs)
-    const hasAdminUpload = pass.pdf_base64 || (pass.pdf_url && !pass.pdf_url.includes('dummy.pdf'));
-    
-    if (hasAdminUpload) {
-      try {
-        const downloadUrl = pass.pdf_base64 || pass.pdf_url!;
-        await db.downloadPdf(downloadUrl, `DC-PASS-${pass.dc_number}.pdf`);
-        return;
-      } catch (err) {
-        console.warn("[DC Pass Portal] Admin uploaded PDF download failed, falling back to dynamic on-the-fly generator:", err);
-      }
+    if (!pass.pdf_base64 && !pass.pdf_url) {
+      alert("No uploaded transit PDF document is available for this pass. Falling back to print view.");
+      window.print();
+      return;
     }
 
-    // Otherwise, generate a pristine, high-fidelity official transit pass PDF on-the-fly client-side!
-    // This is 100% iframe/sandbox-safe, runs completely offline, requires zero credentials, and works for any public user immediately!
     try {
-      const pdfBlob = generateTransitPassPDFBlob(pass);
-      const localUrl = URL.createObjectURL(pdfBlob);
-      const link = document.createElement('a');
-      link.href = localUrl;
-      link.download = `DC-PASS-${pass.dc_number}.pdf`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      setTimeout(() => URL.revokeObjectURL(localUrl), 100);
+      const downloadUrl = pass.pdf_base64 || pass.pdf_url!;
+      await db.downloadPdf(downloadUrl, `DC-PASS-${pass.dc_number}.pdf`);
     } catch (err) {
-      console.error("Dynamic PDF rendering failed, falling back to browser print:", err);
+      console.error("[DC Pass Portal] Admin uploaded PDF download failed:", err);
+      alert("Failed to download the uploaded pass PDF document. Opening print view.");
       window.print();
     }
   };
