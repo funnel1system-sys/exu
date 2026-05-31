@@ -44,7 +44,7 @@ const SEED_PASSES = [
     buyer_mobile: "9999999999",
     pan_gstin: "AAIFG0837H / 24AAIFG0837H1ZL",
     gps_details: "wastoo / WastooWHEELSEYE / Prithivi-140+ OBD Can Feature",
-    pdf_url: "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf",
+    pdf_url: "",
     created_at: "2026-05-26T18:58:21Z",
     status: "active"
   },
@@ -67,7 +67,7 @@ const SEED_PASSES = [
     buyer_mobile: "9426123456",
     pan_gstin: "ABCPG3241F / 24ABCPG3241F1ZD",
     gps_details: "Whelseye OBD-T14",
-    pdf_url: "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf",
+    pdf_url: "",
     created_at: "2026-05-27T08:15:00Z",
     status: "active"
   }

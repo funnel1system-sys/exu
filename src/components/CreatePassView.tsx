@@ -131,8 +131,8 @@ export default function CreatePassView({ onNavigate, onSelectPass }: CreatePassV
     setSuccessPass(null);
 
     // Initial validations to keep the form reliable
-    if (!dcNumber || !vehicleNumber || !mineralName || !netWeight || !journeyStart || !journeyEnd) {
-      setErrorMsg('Ensure all marked fields are completed properly.');
+    if (!dcNumber || !vehicleNumber || !mineralName || !netWeight || !journeyStart || !journeyEnd || !pdfFile) {
+      setErrorMsg('Ensure all marked fields are completed properly, and the original PDF compliance invoice is uploaded.');
       setSubmitting(false);
       return;
     }
@@ -618,7 +618,7 @@ export default function CreatePassView({ onNavigate, onSelectPass }: CreatePassV
         {/* SECTION 5: COMPLIANCE DOCUMENTS */}
         <div>
           <h3 className="text-sm font-bold text-rose-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-            <FileText className="w-4 h-4 text-rose-400" /> Section 5: compliance Documents & PDF Invoice
+            <FileText className="w-4 h-4 text-rose-400" /> Section 5: compliance Documents & PDF Invoice <span className="text-red-500 font-extrabold text-base ml-1">* Required</span>
           </h3>
           <div 
             className={`cursor-pointer rounded-2xl border-2 border-dashed p-6 transition duration-200 text-center flex flex-col items-center justify-center ${
