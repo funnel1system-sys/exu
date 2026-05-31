@@ -720,14 +720,22 @@ export const db = {
           u8arr[n] = bstr.charCodeAt(n);
         }
         const blob = new Blob([u8arr], { type: mime });
-        resolvedUrl = URL.createObjectURL(blob);
+        const localUrl = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = localUrl;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        setTimeout(() => URL.revokeObjectURL(localUrl), 100);
+        return;
       } catch (err) {
-        console.warn('Failed to convert data URL to Blob URL, will attempt direct navigation fallback:', err);
+        console.warn('Failed to convert data URL to Blob URL:', err);
       }
     }
 
     // 2. If it's already a blob/data URL, trigger the download via simulated click
-    if (resolvedUrl.startsWith('blob:') || resolvedUrl.startsWith('data:')) {
+    if (resolvedUrl.startsWith('blob:')) {
       const link = document.createElement('a');
       link.href = resolvedUrl;
       link.download = filename;
@@ -737,42 +745,96 @@ export const db = {
       return;
     }
 
-    // 3. For relative local paths or external proxy paths:
-    // Let the browser trigger native download behavior securely and instantly!
-    // This requires zero client-side fetch, avoids CORS limits, and handles PDF retrieval seamlessly on iOS and Android.
-    let downloadUrl = resolvedUrl;
-    let isLocalPdf = false;
-    let localPath = '';
-    
-    if (resolvedUrl.startsWith('/api/pdf/')) {
-      isLocalPdf = true;
-      localPath = resolvedUrl;
-    } else {
-      const apiIndex = resolvedUrl.indexOf('/api/pdf/');
-      if (apiIndex !== -1) {
-        isLocalPdf = true;
-        localPath = resolvedUrl.substring(apiIndex);
+    // 3. For relative/same-origin URLs (/api/pdf/...) or absolute external URLs:
+    // Fetch it directly in JavaScript as a blob, avoiding page navigation or iframe-redirection entirely!
+    // This is 100% iframe-safe, works perfectly in sandbox containers and Chrome/Safari,
+    // and completely prevents any SPA routing 404 pages from displaying!
+    try {
+      let fetchUrl = resolvedUrl;
+      // If it is local, make sure it is fetched from same-origin with ?download=true
+      if (resolvedUrl.startsWith('/api/pdf/')) {
+        const separator = resolvedUrl.includes('?') ? '&' : '?';
+        fetchUrl = `${resolvedUrl}${separator}download=true`;
+      } else if (!resolvedUrl.startsWith('http://') && !resolvedUrl.startsWith('https://')) {
+        // Fallback for other relative paths
+        fetchUrl = resolvedUrl;
+      } else if (!resolvedUrl.startsWith(window.location.origin)) {
+        // If it's an external URL (like Supabase bucket) and might fail CORS, proxy it through our same-origin /api/download route!
+        fetchUrl = `/api/download?url=${encodeURIComponent(resolvedUrl)}&filename=${encodeURIComponent(filename)}`;
       }
-    }
 
-    if (isLocalPdf) {
-      const separator = localPath.includes('?') ? '&' : '?';
-      downloadUrl = `${window.location.origin}${localPath}${separator}download=true`;
-    } else {
-      downloadUrl = `${window.location.origin}/api/download?url=${encodeURIComponent(resolvedUrl)}&filename=${encodeURIComponent(filename)}`;
-    }
+      console.log(`[DC Pass Portal] Downloading PDF from resolved URL: ${fetchUrl}`);
+      const resp = await fetch(fetchUrl);
+      if (!resp.ok) {
+        throw new Error(`Server returned status ${resp.status}`);
+      }
 
-    // Redirecting window.location.href directly to the download endpoint triggers native browser download 
-    // dialogs beautifully without loading a blank page or losing current component state!
-    window.location.href = downloadUrl;
+      const blob = await resp.blob();
+      const localUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = localUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(() => URL.revokeObjectURL(localUrl), 100);
+    } catch (err) {
+      console.error('[DC Pass Portal] Client-side fetch download failed, falling back to direct navigation:', err);
+      // Clean fallback: open in new tab if permitted, otherwise fall back to direct location assignment
+      const separator = resolvedUrl.includes('?') ? '&' : '?';
+      const openUrl = resolvedUrl.startsWith('http') ? resolvedUrl : `${window.location.origin}${resolvedUrl}${separator}download=true`;
+      window.open(openUrl, '_blank');
+    }
   },
 
-  // Handle PDF upload using a tiered strategies approach (Supabase bucket -> Express Backend APIs -> Raw Base64 fallback)
+  // Handle PDF upload using a tiered strategies approach (Express Backend APIs -> Supabase bucket -> Raw Base64 fallback)
   // This fully matches production expectations where files are served publicly to client scanning terminals
   async uploadPassPDF(file: File, dcNumber?: string): Promise<string> {
     const cleanDc = dcNumber ? dcNumber.trim().toUpperCase() : `${Math.random().toString(36).substring(2, 11)}`;
 
-    // Tier 1: Real Supabase bucket storage (if live connected)
+    // Convert file to Base64 once to use for both server upload and transferable data-url fallback
+    let base64Data = '';
+    try {
+      base64Data = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          if (typeof reader.result === 'string') resolve(reader.result);
+          else reject(new Error('File conversion outcome was non-string'));
+        };
+        reader.onerror = (e) => reject(e);
+        reader.readAsDataURL(file);
+      });
+    } catch (err) {
+      console.error('[DC Pass Portal] Failed to read uploaded file to Base64:', err);
+    }
+
+    // Tier 1: Dedicated Server Filesystem upload (works on local Express + container runs + ensures persistent mounted /data/pdfs storage)
+    if (base64Data) {
+      try {
+        const resp = await fetch('/api/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: file.name,
+            base64: base64Data
+          })
+        });
+
+        if (resp.ok) {
+          const result = await resp.json();
+          if (result.url) {
+            console.log('[DC Pass Portal] Successfully uploaded to persistent Express store:', result.url);
+            return result.url; // e.g. /api/pdf/uniqid_filename_invoice.pdf
+          }
+        } else {
+          console.warn(`[DC Pass Portal] Server PDF upload endpoint returned status ${resp.status}`);
+        }
+      } catch (err) {
+        console.warn('[DC Pass Portal] Express API upload failed, using Supabase backup:', err);
+      }
+    }
+
+    // Tier 2: Supabase bucket storage backup (if live connected)
     if (!isMock && realSupabase) {
       try {
         const fileExt = file.name.split('.').pop() || 'pdf';
@@ -795,48 +857,7 @@ export const db = {
           return publicUrlData.publicUrl;
         }
       } catch (err) {
-        console.warn('[DC Pass Portal] Supabase PDF bucket upload failed, trying server disk fallback:', err);
-      }
-    }
-
-    // Convert file to Base64 once to use for both server upload and transferable data-url fallback
-    let base64Data = '';
-    try {
-      base64Data = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-          if (typeof reader.result === 'string') resolve(reader.result);
-          else reject(new Error('File conversion outcome was non-string'));
-        };
-        reader.onerror = (e) => reject(e);
-        reader.readAsDataURL(file);
-      });
-    } catch (err) {
-      console.error('[DC Pass Portal] Failed to read uploaded file to Base64:', err);
-    }
-
-    // Tier 2: Dedicated Server Filesystem upload (works on local Express + container runs)
-    if (base64Data) {
-      try {
-        const resp = await fetch('/api/upload', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name: file.name,
-            base64: base64Data
-          })
-        });
-
-        if (resp.ok) {
-          const result = await resp.json();
-          if (result.url) {
-            return result.url; // e.g. /api/pdf/uniqid_filename_invoice.pdf
-          }
-        } else {
-          console.warn(`[DC Pass Portal] Server PDF upload endpoint returned status ${resp.status}`);
-        }
-      } catch (err) {
-        console.warn('[DC Pass Portal] Express API upload failed:', err);
+        console.warn('[DC Pass Portal] Supabase PDF bucket upload fallback failed:', err);
       }
     }
 
@@ -849,14 +870,9 @@ export const db = {
       console.warn('[DC Pass Portal] IndexedDB fallback write bypassed:', err);
     }
 
-    // Return the transferable, self-contained Base64 data-url so any scanning device
-    // has full capacity to open and download the PDF beautifully on the spot!
-    if (base64Data) {
-      return base64Data;
-    }
-
-    return '';
-  }
+    // Fallback to data URL
+    return base64Data || '';
+  },
 };
 
 /**
