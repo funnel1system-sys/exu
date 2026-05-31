@@ -1,6 +1,7 @@
 import { useEffect, useState, FormEvent } from 'react';
 import { DCPass, ViewType } from '../types';
 import { db } from '../supabase';
+import { generateTransitPassPDFBlob } from '../utils/pdfGenerator';
 import { 
   FileSpreadsheet, 
   Search, 
@@ -214,19 +215,33 @@ export default function AllPassesView({ onSelectPass, onNavigate }: AllPassesVie
 
   // File download helper
   const handleDownloadInvoice = async (pass: DCPass) => {
-    if (!pass.pdf_base64 && !pass.pdf_url) {
-      // If no PDF URL at all, navigate and trigger printing of the pass layout
-      onSelectPass(pass.dc_number);
-      setTimeout(() => {
-        window.print();
-      }, 800);
-      return;
+    // Check if there is an authentic admin upload in either pdf_base64 or pdf_url (filtering out placeholder dummy.pdf URLs)
+    const hasAdminUpload = pass.pdf_base64 || (pass.pdf_url && !pass.pdf_url.includes('dummy.pdf'));
+
+    if (hasAdminUpload) {
+      try {
+        const downloadUrl = pass.pdf_base64 || pass.pdf_url!;
+        await db.downloadPdf(downloadUrl, `DC-PASS-${pass.dc_number}.pdf`);
+        return;
+      } catch (err) {
+        console.warn("[DC Pass Portal] Admin uploaded PDF download failed, falling back to dynamic on-the-fly generator:", err);
+      }
     }
 
+    // Otherwise, generate a pristine, high-fidelity official transit pass PDF on-the-fly client-side!
+    // This is 100% iframe/sandbox-safe, runs completely offline, requires zero credentials, and works for any user immediately!
     try {
-      await db.downloadPdf(pass.pdf_base64 || pass.pdf_url!, `DC-PASS-${pass.dc_number}.pdf`);
+      const pdfBlob = generateTransitPassPDFBlob(pass);
+      const localUrl = URL.createObjectURL(pdfBlob);
+      const link = document.createElement('a');
+      link.href = localUrl;
+      link.download = `DC-PASS-${pass.dc_number}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(() => URL.revokeObjectURL(localUrl), 100);
     } catch (err) {
-      console.error("All download routes failed, falling back to print preview:", err);
+      console.error("Dynamic PDF rendering failed, falling back to print preview:", err);
       onSelectPass(pass.dc_number);
       setTimeout(() => {
         window.print();
