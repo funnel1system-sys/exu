@@ -6,18 +6,49 @@ import CreatePassView from './components/CreatePassView';
 import AllPassesView from './components/AllPassesView';
 import PublicPassView from './components/PublicPassView';
 import NotFoundView from './components/NotFoundView';
+import PublicPortalHome from './components/PublicPortalHome';
 import { ViewType } from './types';
 import { authService, extractDCNumber } from './supabase';
 import { ShieldCheck, LogOut, Loader2, Sparkles } from 'lucide-react';
+
+// Extract initial router settings synchronously on module parse to prevent any Guest view state 404 race conditions
+function getInitialRouteState(): { view: ViewType; dcNumber: string; isLogin: boolean } {
+  if (typeof window === 'undefined') {
+    return { view: 'dashboard', dcNumber: '', isLogin: false };
+  }
+  const path = window.location.pathname;
+  const hash = window.location.hash;
+
+  const isLogin = path === '/login' || path === '/login/' || hash === '#/login' || hash === '#login';
+
+  if (path.startsWith('/pass/')) {
+    const dcNum = extractDCNumber(path);
+    if (dcNum) {
+      return { view: 'public-verify', dcNumber: dcNum, isLogin: false };
+    }
+  } else if (hash.startsWith('#/pass/')) {
+    const dcNum = extractDCNumber(hash);
+    if (dcNum) {
+      return { view: 'public-verify', dcNumber: dcNum, isLogin: false };
+    }
+  } else if (hash === '#/create-pass' || hash === '#create-pass') {
+    return { view: 'create-pass', dcNumber: '', isLogin: false };
+  } else if (hash === '#/all-passes' || hash === '#all-passes') {
+    return { view: 'all-passes', dcNumber: '', isLogin: false };
+  }
+
+  return { view: 'dashboard', dcNumber: '', isLogin };
+}
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<any | null>(null);
   const [loadingSession, setLoadingSession] = useState(true);
   
-  // Custom router state
-  const [currentView, setCurrentView] = useState<ViewType>('dashboard');
-  const [queriedDCNumber, setQueriedDCNumber] = useState('');
-  const [isOnLoginPath, setIsOnLoginPath] = useState(false);
+  // Custom router state initialized synchronously to avoid any client-side 404 state mismatch
+  const initialRoute = getInitialRouteState();
+  const [currentView, setCurrentView] = useState<ViewType>(initialRoute.view);
+  const [queriedDCNumber, setQueriedDCNumber] = useState(initialRoute.dcNumber);
+  const [isOnLoginPath, setIsOnLoginPath] = useState(initialRoute.isLogin);
 
   // Handle routing by parsing window locations (both pathname and hash falls)
   const parseLocalRoute = () => {
@@ -93,8 +124,8 @@ export default function App() {
       setQueriedDCNumber(dcNum);
       setCurrentView('public-verify');
       
-      // Update browser URL
-      const targetPath = `/pass/${dcNum}`;
+      // Update browser URL to support hash-routing without login
+      const targetPath = `/#/pass/${dcNum}`;
       window.history.pushState({ view, dcNum }, '', targetPath);
     } else {
       setCurrentView(view);
@@ -141,9 +172,9 @@ export default function App() {
           if (currentUser) {
             navigateToLocalPath('all-passes');
           } else {
-            // Otherwise reset path to /login so they don't get a 404 block
-            window.history.pushState({}, '', '/login');
-            setIsOnLoginPath(true);
+            // Otherwise reset path to root / and show the public portal homepage
+            window.history.pushState({}, '', '/');
+            setIsOnLoginPath(false);
             setCurrentView('dashboard');
           }
         }} 
@@ -156,7 +187,15 @@ export default function App() {
     if (isOnLoginPath) {
       return <LoginView onSuccess={handleLoginSuccess} />;
     } else {
-      return <NotFoundView />;
+      return (
+        <PublicPortalHome 
+          onSearch={(dcNum) => navigateToLocalPath('public-verify', dcNum)} 
+          onGoToLogin={() => {
+            window.history.pushState({}, '', '/login');
+            setIsOnLoginPath(true);
+          }} 
+        />
+      );
     }
   }
 
