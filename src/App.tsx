@@ -6,7 +6,6 @@ import CreatePassView from './components/CreatePassView';
 import AllPassesView from './components/AllPassesView';
 import PublicPassView from './components/PublicPassView';
 import NotFoundView from './components/NotFoundView';
-import PublicPortalHome from './components/PublicPortalHome';
 import { ViewType } from './types';
 import { authService, extractDCNumber } from './supabase';
 import { ShieldCheck, LogOut, Loader2, Sparkles } from 'lucide-react';
@@ -187,15 +186,7 @@ export default function App() {
     if (isOnLoginPath) {
       return <LoginView onSuccess={handleLoginSuccess} />;
     } else {
-      return (
-        <PublicPortalHome 
-          onSearch={(dcNum) => navigateToLocalPath('public-verify', dcNum)} 
-          onGoToLogin={() => {
-            window.history.pushState({}, '', '/login');
-            setIsOnLoginPath(true);
-          }} 
-        />
-      );
+      return <NotFoundView />;
     }
   }
 
