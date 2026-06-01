@@ -699,23 +699,18 @@ export const db = {
     }
 
     // 3. For relative/same-origin URLs (/api/pdf/...) or absolute external URLs:
-    // Standard server URLs (and APIs proxy downloads) are extremely robust when navigated to natively.
-    // By using direct native window.location / window.open actions, the browser triggers the system native
-    // download sheet perfectly (via Content-Disposition) even on iOS, Android webviews (WhatsApp, WeChat),
-    // and fully eliminates silent failures caused by programmatic Blob link clicks on mobile!
+    // We attempt to fetch the file directly inside the browser using client-side CORS capability,
+    // convert it to a local Blob URL, and initiate an immediate client-side trigger.
+    // This entirely avoids routing through server-side /api/download proxies which cause 404 NOT FOUND
+    // errors in static/serverless deployment contexts (like Vercel, Netlify, etc.)!
     try {
       let fetchUrl = resolvedUrl;
-      // If it is local, make sure it is fetched from same-origin with ?download=true
       if (resolvedUrl.startsWith('/api/pdf/') || resolvedUrl.includes('/api/pdf/')) {
         const separator = resolvedUrl.includes('?') ? '&' : '?';
         fetchUrl = `${resolvedUrl}${separator}download=true`;
       } else if (!resolvedUrl.startsWith('http://') && !resolvedUrl.startsWith('https://')) {
-        // Fallback for other relative paths
         const separator = resolvedUrl.includes('?') ? '&' : '?';
         fetchUrl = `${resolvedUrl}${separator}download=true`;
-      } else if (!resolvedUrl.startsWith(window.location.origin)) {
-        // If it's an external URL (like Supabase bucket) and might fail CORS, proxy it through our same-origin /api/download route!
-        fetchUrl = `/api/download?url=${encodeURIComponent(resolvedUrl)}&filename=${encodeURIComponent(filename)}`;
       }
 
       // Re-normalize to absolute same-origin URL mapping if it's relative
@@ -723,51 +718,30 @@ export const db = {
         fetchUrl = `${window.location.origin}${fetchUrl}`;
       }
 
-      console.log(`[DC Pass Portal] Active native trigger for device download: ${fetchUrl}`);
-
-      // Standalone browser viewports (scanned QR codes on real phones, etc.) can be served natively via location change.
-      // This is 100% reliable as Content-Disposition will prevent page navigation, initiating a native popup.
-      if (window === window.top) {
-        window.location.href = fetchUrl;
+      console.log(`[DC Pass Portal] Fetching target client-side: ${fetchUrl}`);
+      const resp = await fetch(fetchUrl);
+      if (resp.ok) {
+        const blob = await resp.blob();
+        const localUrl = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = localUrl;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        setTimeout(() => URL.revokeObjectURL(localUrl), 100);
+        return;
       } else {
-        // For sandboxed iframes (e.g., inside AI Studio preview frame), window.open bypasses sandboxed iframe link limits.
-        window.open(fetchUrl, '_blank');
+        console.warn(`Direct fetch failed with status ${resp.status}, trying fallback window direct load...`);
       }
     } catch (err) {
-      console.error('[DC Pass Portal] Direct native download transition failed, running fetch fallback:', err);
-      // Fallback: try fetching as a blob if direct navigation had issue
-      try {
-        let fetchUrl = resolvedUrl;
-        if (resolvedUrl.startsWith('/api/pdf/') || resolvedUrl.includes('/api/pdf/')) {
-          const separator = resolvedUrl.includes('?') ? '&' : '?';
-          fetchUrl = `${resolvedUrl}${separator}download=true`;
-        } else if (!resolvedUrl.startsWith('http://') && !resolvedUrl.startsWith('https://')) {
-          const separator = resolvedUrl.includes('?') ? '&' : '?';
-          fetchUrl = `${resolvedUrl}${separator}download=true`;
-        } else if (!resolvedUrl.startsWith(window.location.origin)) {
-          fetchUrl = `/api/download?url=${encodeURIComponent(resolvedUrl)}&filename=${encodeURIComponent(filename)}`;
-        }
-
-        const resp = await fetch(fetchUrl);
-        if (resp.ok) {
-          const blob = await resp.blob();
-          const localUrl = URL.createObjectURL(blob);
-          const link = document.createElement('a');
-          link.href = localUrl;
-          link.download = filename;
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-          setTimeout(() => URL.revokeObjectURL(localUrl), 100);
-        }
-      } catch (fallbackErr) {
-        console.error('[DC Pass Portal] All download options exhausted:', fallbackErr);
-        // Absolute last resort - open in new window
-        const separator = resolvedUrl.includes('?') ? '&' : '?';
-        const fallbackUrl = resolvedUrl.startsWith('http') ? resolvedUrl : `${window.location.origin}${resolvedUrl}${separator}download=true`;
-        window.open(fallbackUrl, '_blank');
-      }
+      console.warn('[DC Pass Portal] Direct client fetch failed (possibly CORS). Opening the link directly...', err);
     }
+
+    // 4. Ultimate, rock-solid fallback: Open the resource URL directly in a new tab.
+    // For Supabase public bucket storage, the browser will seamlessly open the PDF or let the user save it natively without 404 errors!
+    console.log('[DC Pass Portal] Opening final target natively in new window:', resolvedUrl);
+    window.open(resolvedUrl, '_blank');
   },
 
   // Handle PDF upload using a tiered strategies approach (Supabase bucket -> Raw Base64 fallback)
