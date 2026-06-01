@@ -531,7 +531,7 @@ export default function PublicPassView({ dcNumber, onBackToPortal, isAdmin }: Pu
           {/* DETAILS */}
           <div className="row">
             <span className="label">Royalty Issued on:</span>{' '}
-            {pass.royalty_issued || formatGovDate(pass.created_at)}
+            {pass.royalty_issued ? (pass.royalty_issued.includes('/') ? pass.royalty_issued : formatGovDate(pass.royalty_issued)) : formatGovDate(pass.created_at)}
           </div>
 
           <div className="line"></div>
