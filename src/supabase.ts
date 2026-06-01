@@ -770,12 +770,12 @@ export const db = {
     }
   },
 
-  // Handle PDF upload using a tiered strategies approach (Express Backend APIs -> Supabase bucket -> Raw Base64 fallback)
+  // Handle PDF upload using a tiered strategies approach (Supabase bucket -> Express Backend -> Raw Base64 fallback)
   // This fully matches production expectations where files are served publicly to client scanning terminals
   async uploadPassPDF(file: File, dcNumber?: string): Promise<string> {
     const cleanDc = dcNumber ? dcNumber.trim().toUpperCase() : `${Math.random().toString(36).substring(2, 11)}`;
 
-    // Convert file to Base64 once to use for both server upload and transferable data-url fallback
+    // Convert file to Base64 once to use for backup server upload and transferable data-url fallback
     let base64Data = '';
     try {
       base64Data = await new Promise<string>((resolve, reject) => {
@@ -791,9 +791,67 @@ export const db = {
       console.error('[DC Pass Portal] Failed to read uploaded file to Base64:', err);
     }
 
-    // Tier 1: Dedicated Server Filesystem upload (works on local Express + container runs + ensures persistent mounted /data/pdfs storage)
+    // Tier 1: Supabase bucket storage (if live connected) - MUST be used as main path for absolute long-term persistence across multiple container instances!
+    if (!isMock && realSupabase) {
+      const fileExt = file.name.split('.').pop() || 'pdf';
+      const fileName = `${cleanDc}-${Date.now()}.${fileExt}`;
+      const filePath = `passes/${fileName}`;
+
+      // 1. First try the custom 'dc_passes_pdf' bucket as requested by the user
+      try {
+        console.log('[DC Pass Portal] Attempting direct upload to Supabase bucket: dc_passes_pdf');
+        const { error: uploadError } = await realSupabase.storage
+          .from('dc_passes_pdf')
+          .upload(filePath, file, {
+            cacheControl: '3600',
+            upsert: true
+          });
+
+        if (!uploadError) {
+          const { data: publicUrlData } = realSupabase.storage
+            .from('dc_passes_pdf')
+            .getPublicUrl(filePath);
+
+          if (publicUrlData?.publicUrl) {
+            console.log('[DC Pass Portal] Successfully uploaded to Supabase dc_passes_pdf:', publicUrlData.publicUrl);
+            return publicUrlData.publicUrl;
+          }
+        } else {
+          console.warn('[DC Pass Portal] Upload to dc_passes_pdf failed, trying backup bucket dc-pdfs:', uploadError);
+        }
+      } catch (err) {
+        console.warn('[DC Pass Portal] Exception during upload to dc_passes_pdf bucket:', err);
+      }
+
+      // 2. Fallback to 'dc-pdfs' bucket if the preferred bucket failed
+      try {
+        console.log('[DC Pass Portal] Attempting fallback upload to Supabase bucket: dc-pdfs');
+        const { error: uploadError } = await realSupabase.storage
+          .from('dc-pdfs')
+          .upload(filePath, file, {
+            cacheControl: '3600',
+            upsert: true
+          });
+
+        if (!uploadError) {
+          const { data: publicUrlData } = realSupabase.storage
+            .from('dc-pdfs')
+            .getPublicUrl(filePath);
+
+          if (publicUrlData?.publicUrl) {
+            console.log('[DC Pass Portal] Successfully uploaded to Supabase dc-pdfs:', publicUrlData.publicUrl);
+            return publicUrlData.publicUrl;
+          }
+        }
+      } catch (err) {
+        console.warn('[DC Pass Portal] Exception during upload to dc-pdfs bucket:', err);
+      }
+    }
+
+    // Tier 2: Dedicated Server Filesystem upload (used when in simulated mode or if both storage buckets fail)
     if (base64Data) {
       try {
+        console.log('[DC Pass Portal] Attempting fallback upload to local Express backend /api/upload');
         const resp = await fetch('/api/upload', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -813,40 +871,12 @@ export const db = {
           console.warn(`[DC Pass Portal] Server PDF upload endpoint returned status ${resp.status}`);
         }
       } catch (err) {
-        console.warn('[DC Pass Portal] Express API upload failed, using Supabase backup:', err);
+        console.warn('[DC Pass Portal] Express API upload failed:', err);
       }
     }
 
-    // Tier 2: Supabase bucket storage backup (if live connected)
-    if (!isMock && realSupabase) {
-      try {
-        const fileExt = file.name.split('.').pop() || 'pdf';
-        const fileName = `${cleanDc}-${Date.now()}.${fileExt}`;
-        const filePath = `passes/${fileName}`;
-
-        const { error: uploadError } = await realSupabase.storage
-          .from('dc-pdfs')
-          .upload(filePath, file);
-
-        if (uploadError) {
-          throw uploadError;
-        }
-
-        const { data: publicUrlData } = realSupabase.storage
-          .from('dc-pdfs')
-          .getPublicUrl(filePath);
-
-        if (publicUrlData?.publicUrl) {
-          return publicUrlData.publicUrl;
-        }
-      } catch (err) {
-        console.warn('[DC Pass Portal] Supabase PDF bucket upload fallback failed:', err);
-      }
-    }
-
-    // Local IndexedDB offline storage backup has been removed as per user specifications.
-
-    // Fallback to data URL
+    // Tier 3: Direct Base64 data URL fallback
+    console.log('[DC Pass Portal] Falling back to direct base64 data URL');
     return base64Data || '';
   },
 };
