@@ -708,13 +708,24 @@ export const db = {
     let resolvedUrl = await db.resolvePdfUrl(url);
     if (!resolvedUrl) return;
 
+    // Normalization: Enforce same-origin relative paths if url starts with current host/origin
+    if (resolvedUrl.startsWith(window.location.origin)) {
+      resolvedUrl = resolvedUrl.substring(window.location.origin.length);
+    }
+
+    // Support raw base64 data directly (prefix if missing to trigger converter)
+    if (!resolvedUrl.startsWith('data:') && !resolvedUrl.startsWith('blob:') && !resolvedUrl.startsWith('http://') && !resolvedUrl.startsWith('https://') && !resolvedUrl.startsWith('/') && resolvedUrl.length > 100) {
+      resolvedUrl = 'data:application/pdf;base64,' + resolvedUrl;
+    }
+
     // 1. Convert data: Base64 data URLs to local blob: URLs on-the-fly
     // This fully bypasses mobile browser security limits that block downloading direct data: URIs!
     if (resolvedUrl.startsWith('data:')) {
       try {
         const parts = resolvedUrl.split(',');
         const mime = parts[0].match(/:(.*?);/)?.[1] || 'application/pdf';
-        const bstr = atob(parts[1]);
+        const cleanBase64 = parts[1].replace(/\s/g, '');
+        const bstr = atob(cleanBase64);
         let n = bstr.length;
         const u8arr = new Uint8Array(n);
         while (n--) {
@@ -753,12 +764,13 @@ export const db = {
     try {
       let fetchUrl = resolvedUrl;
       // If it is local, make sure it is fetched from same-origin with ?download=true
-      if (resolvedUrl.startsWith('/api/pdf/')) {
+      if (resolvedUrl.startsWith('/api/pdf/') || resolvedUrl.includes('/api/pdf/')) {
         const separator = resolvedUrl.includes('?') ? '&' : '?';
         fetchUrl = `${resolvedUrl}${separator}download=true`;
       } else if (!resolvedUrl.startsWith('http://') && !resolvedUrl.startsWith('https://')) {
         // Fallback for other relative paths
-        fetchUrl = resolvedUrl;
+        const separator = resolvedUrl.includes('?') ? '&' : '?';
+        fetchUrl = `${resolvedUrl}${separator}download=true`;
       } else if (!resolvedUrl.startsWith(window.location.origin)) {
         // If it's an external URL (like Supabase bucket) and might fail CORS, proxy it through our same-origin /api/download route!
         fetchUrl = `/api/download?url=${encodeURIComponent(resolvedUrl)}&filename=${encodeURIComponent(filename)}`;
@@ -783,7 +795,16 @@ export const db = {
       console.error('[DC Pass Portal] Client-side fetch download failed, falling back to direct navigation:', err);
       // Clean fallback: open in new tab if permitted, otherwise fall back to direct location assignment
       const separator = resolvedUrl.includes('?') ? '&' : '?';
-      const openUrl = resolvedUrl.startsWith('http') ? resolvedUrl : `${window.location.origin}${resolvedUrl}${separator}download=true`;
+      let openUrl = resolvedUrl;
+      if (resolvedUrl.includes('/api/pdf/')) {
+        const sep = resolvedUrl.includes('?') ? '&' : '?';
+        openUrl = `${resolvedUrl}${sep}download=true`;
+      } else if (!resolvedUrl.startsWith('http')) {
+        openUrl = `${window.location.origin}${resolvedUrl}${separator}download=true`;
+      } else {
+        const sep = resolvedUrl.includes('?') ? '&' : '?';
+        openUrl = `${resolvedUrl}${sep}download=true`;
+      }
       window.open(openUrl, '_blank');
     }
   },
