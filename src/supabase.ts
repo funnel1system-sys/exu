@@ -1,17 +1,17 @@
 import { createClient } from '@supabase/supabase-js';
 import { DCPass } from './types';
 
-// Read configuration from environment variables
+// Read configuration from environment variables (using live Supabase credentials as fallback)
 const supabaseUrl = (
   ((import.meta as any).env?.VITE_SUPABASE_URL) || 
   ((import.meta as any).env?.SUPABASE_URL) || 
-  ''
+  'https://iddpzukhmnxnvhzrswvs.supabase.co'
 ).trim();
 
 const supabaseAnonKey = (
   ((import.meta as any).env?.VITE_SUPABASE_ANON_KEY) || 
   ((import.meta as any).env?.NEXT_PUBLIC_SUPABASE_ANON_KEY) || 
-  ''
+  'sb_publishable_wDy8FFztSPkopVB5qAYzGw_12SqeJ6M'
 ).trim();
 
 // A robust URL validation utility to check for HTTP/HTTPS protocol and placeholders
