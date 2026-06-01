@@ -770,12 +770,12 @@ export const db = {
     }
   },
 
-  // Handle PDF upload using a tiered strategies approach (Supabase bucket -> Express Backend -> Raw Base64 fallback)
-  // This fully matches production expectations where files are served publicly to client scanning terminals
+  // Handle PDF upload using a tiered strategies approach (Supabase bucket -> Raw Base64 fallback)
+  // We do NOT use local server filesystem /api/upload as a fallback in serverless/static Vercel deployments to prevent 404 errors!
   async uploadPassPDF(file: File, dcNumber?: string): Promise<string> {
     const cleanDc = dcNumber ? dcNumber.trim().toUpperCase() : `${Math.random().toString(36).substring(2, 11)}`;
 
-    // Convert file to Base64 once to use for backup server upload and transferable data-url fallback
+    // Convert file to Base64 once to use for backup and transferable data-url fallback
     let base64Data = '';
     try {
       base64Data = await new Promise<string>((resolve, reject) => {
@@ -791,7 +791,7 @@ export const db = {
       console.error('[DC Pass Portal] Failed to read uploaded file to Base64:', err);
     }
 
-    // Tier 1: Supabase bucket storage (if live connected) - MUST be used as main path for absolute long-term persistence across multiple container instances!
+    // Tier 1: Supabase bucket storage (if live connected) - MUST be used as main path for absolute long-term persistence!
     if (!isMock && realSupabase) {
       const fileExt = file.name.split('.').pop() || 'pdf';
       const fileName = `${cleanDc}-${Date.now()}.${fileExt}`;
@@ -848,35 +848,10 @@ export const db = {
       }
     }
 
-    // Tier 2: Dedicated Server Filesystem upload (used when in simulated mode or if both storage buckets fail)
-    if (base64Data) {
-      try {
-        console.log('[DC Pass Portal] Attempting fallback upload to local Express backend /api/upload');
-        const resp = await fetch('/api/upload', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name: file.name,
-            base64: base64Data
-          })
-        });
-
-        if (resp.ok) {
-          const result = await resp.json();
-          if (result.url) {
-            console.log('[DC Pass Portal] Successfully uploaded to persistent Express store:', result.url);
-            return result.url; // e.g. /api/pdf/uniqid_filename_invoice.pdf
-          }
-        } else {
-          console.warn(`[DC Pass Portal] Server PDF upload endpoint returned status ${resp.status}`);
-        }
-      } catch (err) {
-        console.warn('[DC Pass Portal] Express API upload failed:', err);
-      }
-    }
-
-    // Tier 3: Direct Base64 data URL fallback
-    console.log('[DC Pass Portal] Falling back to direct base64 data URL');
+    // Tier 2: Instant Raw Base64 data URL fallback.
+    // Extremely robust: saves the file directly in the PostgreSQL 'pdf_url' database column as a base64 string.
+    // Completely bypasses transient disk limits and production serverless proxy routing blocks, preventing all 404 NOT_FOUND errors!
+    console.log('[DC Pass Portal] Saving PDF directly to database row as inline Base64 data URL to prevent all 404 errors!');
     return base64Data || '';
   },
 };
