@@ -147,58 +147,7 @@ const DEFAULT_PASSES: DCPass[] = [
 const LOCAL_STORAGE_KEY = 'dc_passes_db_v1';
 const AUTH_KEY = 'dc_passes_auth_user';
 
-// IndexedDB PDF Storage Helpers for simulated mode (prevents QuotaExceededError in localStorage)
-const IDB_NAME = 'DCPassPDFStore';
-const IDB_STORE_NAME = 'pdfs';
-
-function openIndexedDB(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    if (typeof indexedDB === 'undefined') {
-      reject(new Error('IndexedDB not supported in this environment'));
-      return;
-    }
-    const request = indexedDB.open(IDB_NAME, 1);
-    request.onupgradeneeded = () => {
-      const db = request.result;
-      if (!db.objectStoreNames.contains(IDB_STORE_NAME)) {
-        db.createObjectStore(IDB_STORE_NAME);
-      }
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error || new Error('Failed to open IndexedDB'));
-  });
-}
-
-export async function savePDFToIndexedDB(key: string, file: File | Blob): Promise<void> {
-  try {
-    const idb = await openIndexedDB();
-    return new Promise((resolve, reject) => {
-      const transaction = idb.transaction(IDB_STORE_NAME, 'readwrite');
-      const store = transaction.objectStore(IDB_STORE_NAME);
-      const request = store.put(file, key);
-      request.onsuccess = () => resolve();
-      request.onerror = () => reject(request.error || new Error('Store write failed'));
-    });
-  } catch (err) {
-    console.warn('[DC Pass Portal] savePDFToIndexedDB failed:', err);
-  }
-}
-
-export async function getPDFFromIndexedDB(key: string): Promise<Blob | null> {
-  try {
-    const idb = await openIndexedDB();
-    return new Promise((resolve, reject) => {
-      const transaction = idb.transaction(IDB_STORE_NAME, 'readonly');
-      const store = transaction.objectStore(IDB_STORE_NAME);
-      const request = store.get(key);
-      request.onsuccess = () => resolve(request.result || null);
-      request.onerror = () => reject(request.error || new Error('Store read failed'));
-    });
-  } catch (err) {
-    console.warn('[DC Pass Portal] getPDFFromIndexedDB failed:', err);
-    return null;
-  }
-}
+// Local offline cache and backup via IndexedDB has been removed as per user's instructions.
 
 export function safeSetLocalStorage(key: string, data: any[]) {
   try {
@@ -689,17 +638,9 @@ export const db = {
     }
   },
 
-  // Resolves IndexedDB URLs to local object URL or returns the URL as-is
+  // Resolves IndexedDB URLs to local object URL or returns the URL as-is (IndexedDB logic removed)
   async resolvePdfUrl(url: string | null | undefined): Promise<string> {
-    if (!url) return '';
-    if (url.startsWith('indexeddb://')) {
-      const key = url.substring('indexeddb://'.length);
-      const blob = await getPDFFromIndexedDB(key);
-      if (blob) {
-        return URL.createObjectURL(blob);
-      }
-    }
-    return url;
+    return url || '';
   },
 
   // Centrally handles PDF downloads through relative links or a secure same-origin CORS proxy
@@ -758,9 +699,10 @@ export const db = {
     }
 
     // 3. For relative/same-origin URLs (/api/pdf/...) or absolute external URLs:
-    // Fetch it directly in JavaScript as a blob, avoiding page navigation or iframe-redirection entirely!
-    // This is 100% iframe-safe, works perfectly in sandbox containers and Chrome/Safari,
-    // and completely prevents any SPA routing 404 pages from displaying!
+    // Standard server URLs (and APIs proxy downloads) are extremely robust when navigated to natively.
+    // By using direct native window.location / window.open actions, the browser triggers the system native
+    // download sheet perfectly (via Content-Disposition) even on iOS, Android webviews (WhatsApp, WeChat),
+    // and fully eliminates silent failures caused by programmatic Blob link clicks on mobile!
     try {
       let fetchUrl = resolvedUrl;
       // If it is local, make sure it is fetched from same-origin with ?download=true
@@ -776,36 +718,55 @@ export const db = {
         fetchUrl = `/api/download?url=${encodeURIComponent(resolvedUrl)}&filename=${encodeURIComponent(filename)}`;
       }
 
-      console.log(`[DC Pass Portal] Downloading PDF from resolved URL: ${fetchUrl}`);
-      const resp = await fetch(fetchUrl);
-      if (!resp.ok) {
-        throw new Error(`Server returned status ${resp.status}`);
+      // Re-normalize to absolute same-origin URL mapping if it's relative
+      if (fetchUrl.startsWith('/')) {
+        fetchUrl = `${window.location.origin}${fetchUrl}`;
       }
 
-      const blob = await resp.blob();
-      const localUrl = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = localUrl;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      setTimeout(() => URL.revokeObjectURL(localUrl), 100);
-    } catch (err) {
-      console.error('[DC Pass Portal] Client-side fetch download failed, falling back to direct navigation:', err);
-      // Clean fallback: open in new tab if permitted, otherwise fall back to direct location assignment
-      const separator = resolvedUrl.includes('?') ? '&' : '?';
-      let openUrl = resolvedUrl;
-      if (resolvedUrl.includes('/api/pdf/')) {
-        const sep = resolvedUrl.includes('?') ? '&' : '?';
-        openUrl = `${resolvedUrl}${sep}download=true`;
-      } else if (!resolvedUrl.startsWith('http')) {
-        openUrl = `${window.location.origin}${resolvedUrl}${separator}download=true`;
+      console.log(`[DC Pass Portal] Active native trigger for device download: ${fetchUrl}`);
+
+      // Standalone browser viewports (scanned QR codes on real phones, etc.) can be served natively via location change.
+      // This is 100% reliable as Content-Disposition will prevent page navigation, initiating a native popup.
+      if (window === window.top) {
+        window.location.href = fetchUrl;
       } else {
-        const sep = resolvedUrl.includes('?') ? '&' : '?';
-        openUrl = `${resolvedUrl}${sep}download=true`;
+        // For sandboxed iframes (e.g., inside AI Studio preview frame), window.open bypasses sandboxed iframe link limits.
+        window.open(fetchUrl, '_blank');
       }
-      window.open(openUrl, '_blank');
+    } catch (err) {
+      console.error('[DC Pass Portal] Direct native download transition failed, running fetch fallback:', err);
+      // Fallback: try fetching as a blob if direct navigation had issue
+      try {
+        let fetchUrl = resolvedUrl;
+        if (resolvedUrl.startsWith('/api/pdf/') || resolvedUrl.includes('/api/pdf/')) {
+          const separator = resolvedUrl.includes('?') ? '&' : '?';
+          fetchUrl = `${resolvedUrl}${separator}download=true`;
+        } else if (!resolvedUrl.startsWith('http://') && !resolvedUrl.startsWith('https://')) {
+          const separator = resolvedUrl.includes('?') ? '&' : '?';
+          fetchUrl = `${resolvedUrl}${separator}download=true`;
+        } else if (!resolvedUrl.startsWith(window.location.origin)) {
+          fetchUrl = `/api/download?url=${encodeURIComponent(resolvedUrl)}&filename=${encodeURIComponent(filename)}`;
+        }
+
+        const resp = await fetch(fetchUrl);
+        if (resp.ok) {
+          const blob = await resp.blob();
+          const localUrl = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = localUrl;
+          link.download = filename;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          setTimeout(() => URL.revokeObjectURL(localUrl), 100);
+        }
+      } catch (fallbackErr) {
+        console.error('[DC Pass Portal] All download options exhausted:', fallbackErr);
+        // Absolute last resort - open in new window
+        const separator = resolvedUrl.includes('?') ? '&' : '?';
+        const fallbackUrl = resolvedUrl.startsWith('http') ? resolvedUrl : `${window.location.origin}${resolvedUrl}${separator}download=true`;
+        window.open(fallbackUrl, '_blank');
+      }
     }
   },
 
@@ -883,14 +844,7 @@ export const db = {
       }
     }
 
-    // Tier 3: Local IndexedDB for local cache offline backup
-    const storeKey = `pdf_${cleanDc}_${Date.now()}`;
-    try {
-      await savePDFToIndexedDB(storeKey, file);
-      console.log('[DC Pass Portal] Local offline IndexedDB cache write completed.');
-    } catch (err) {
-      console.warn('[DC Pass Portal] IndexedDB fallback write bypassed:', err);
-    }
+    // Local IndexedDB offline storage backup has been removed as per user specifications.
 
     // Fallback to data URL
     return base64Data || '';
